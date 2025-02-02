@@ -1,14 +1,23 @@
 {
-  "name": "rare-birds",
-  "private": true,
-  "version": "0.0.0",
+  "name": "rare-birds-client",
+  "version": "1.0.0",
+  "description": "React frontend for Rare Birds application - interactive bird sighting map and user interface",
   "type": "module",
+  "author": "Michelle Tomasko <tomaskom@gmail.com>",
+  "license": "GPL-3.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
+  "keywords": [
+    "react",
+    "vite",
+    "leaflet",
+    "rare-birds",
+    "frontend"
+  ],
   "dependencies": {
     "leaflet": "^1.9.4",
     "lodash": "^4.17.21",
