@@ -21,7 +21,7 @@ An interactive web application that displays notable ("rare") bird sightings on 
 
 - Node.js (v14 or higher)
 - npm or yarn
-- A valid eBird API key
+- A valid eBird API key (https://documenter.getpostman.com/view/664302/S1ENwy59)
 
 ## Installation
 
