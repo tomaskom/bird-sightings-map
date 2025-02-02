@@ -50,7 +50,7 @@ const BirdPopupContent = memo(({ birds }) => (
       >
         <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
         <p style={{ fontSize: '0.9em', color: '#4B5563' }}>
-          Observed: {new Date(bird.obsDt).toLocaleDateString()}
+          Last Observed: {new Date(bird.obsDt).toLocaleDateString()}
         </p>
         <p style={{ fontSize: '0.8em', color: '#6B7280', wordBreak: 'break-all' }}>
         Checklists: {bird.subIds.map((subId, index) => (
