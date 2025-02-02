@@ -52,10 +52,26 @@ const BirdPopupContent = memo(({ birds }) => (
         <p style={{ fontSize: '0.9em', color: '#4B5563' }}>
           Observed: {new Date(bird.obsDt).toLocaleDateString()}
         </p>
+        <p style={{ fontSize: '0.8em', color: '#6B7280', wordBreak: 'break-all' }}>
+        Checklists: {bird.subIds.map((subId, index) => (
+            <>
+              <a 
+                href={`https://ebird.org/checklist/${subId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#3B82F6', textDecoration: 'underline' }}
+              >
+                {subId}
+              </a>
+              {index < bird.subIds.length - 1 ? ', ' : ''}
+            </>
+          ))}
+        </p>
       </div>
     ))}
   </div>
 ));
+
 
 // Component for popup interaction handling
 const PopupInteractionHandler = () => {
@@ -174,23 +190,41 @@ const BirdMap = () => {
       }
       
       const data = await response.json();
+      
       // Filter out invalid observations
       const validSightings = data.filter(sighting => sighting.obsValid === true);
-
-      // Group sightings by location (lat/lng)
-      const groupedSightings = _.groupBy(validSightings, sighting => `${sighting.lat},${sighting.lng}`);
+      console.log("Valid sightings:", validSightings.length);  // Debug log
+  
+      // Group sightings by location
+      const groupedByLocation = _.groupBy(validSightings, sighting => 
+        `${sighting.lat},${sighting.lng}`
+      );
+      console.log("Grouped locations:", Object.keys(groupedByLocation).length);  // Debug log
       
-      // Remove duplicates at each location while preserving all unique birds
-      const processedSightings = Object.entries(groupedSightings).map(([locationKey, sightings]) => {
+      // Process the grouped sightings to combine birds at the same location
+      const processedSightings = Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
         const [lat, lng] = locationKey.split(',').map(Number);
-        const uniqueBirds = _.uniqBy(sightings, 'comName');
+        
+        // Group by species at this location
+        const birdsBySpecies = _.groupBy(sightings, 'comName');
+        
+        // Combine the information for each species
+        const birds = Object.entries(birdsBySpecies).map(([comName, speciesSightings]) => {
+          console.log(`Processing ${comName} with ${speciesSightings.length} sightings`);  // Debug log
+          return {
+            ...speciesSightings[0],
+            subIds: speciesSightings.map(s => s.subId)
+          };
+        });
+        
         return {
           lat,
           lng,
-          birds: uniqueBirds
+          birds
         };
       });
       
+      console.log("Final processed sightings:", processedSightings.length);  // Debug log
       setBirdSightings(processedSightings);
     } catch (error) {
       console.error('Error fetching bird data:', error);
