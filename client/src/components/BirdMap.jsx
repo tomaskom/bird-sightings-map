@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { MapContainer, TileLayer, useMapEvents, Marker, Popup } from 'react-leaflet';
+import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
+import { MapContainer, TileLayer, useMapEvents, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import _ from 'lodash';
 
@@ -25,6 +25,81 @@ const MultipleIcon = L.divIcon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
+// Memoized popup content component
+const BirdPopupContent = memo(({ birds }) => (
+  <div style={{ 
+    maxHeight: '200px', 
+    overflowY: 'auto',
+    transform: 'translateZ(0)'
+  }}>
+    <h3 style={{ 
+      fontWeight: 'bold', 
+      marginBottom: '0.5rem',
+      minHeight: '1.5rem'
+    }}>
+      {birds.length} {birds.length === 1 ? 'Bird' : 'Birds'} at this location
+    </h3>
+    {birds.map((bird, birdIndex) => (
+      <div 
+        key={`${bird.speciesCode}-${birdIndex}`}
+        style={{ 
+          borderBottom: birdIndex < birds.length - 1 ? '1px solid #e2e8f0' : 'none',
+          padding: '0.5rem 0',
+          minHeight: '4rem'
+        }}
+      >
+        <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
+        <p style={{ fontSize: '0.9em', color: '#4B5563' }}>
+          Observed: {new Date(bird.obsDt).toLocaleDateString()}
+        </p>
+      </div>
+    ))}
+  </div>
+));
+
+// Component for popup interaction handling
+const PopupInteractionHandler = () => {
+  const map = useMap();
+  
+  useEffect(() => {
+    const handlePopupOpen = () => {
+      if (map.dragging) {
+        map.dragging.disable();
+        setTimeout(() => map.dragging.enable(), 300);
+      }
+    };
+
+    map.on('popupopen', handlePopupOpen);
+    return () => {
+      map.off('popupopen', handlePopupOpen);
+    };
+  }, [map]);
+
+  return null;
+};
+
+// Optimized marker with popup handling
+const BirdMarker = memo(({ location, icon }) => {
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  
+  const eventHandlers = useCallback({
+    popupopen: () => setIsPopupOpen(true),
+    popupclose: () => setIsPopupOpen(false),
+  }, []);
+
+  return (
+    <Marker 
+      position={[location.lat, location.lng]}
+      icon={icon}
+      eventHandlers={eventHandlers}
+    >
+      <Popup>
+        {isPopupOpen && <BirdPopupContent birds={location.birds} />}
+      </Popup>
+    </Marker>
+  );
+});
+
 // Component to handle map events
 const MapEvents = ({ onMoveEnd }) => {
   const map = useMapEvents({
@@ -43,7 +118,6 @@ const BirdMap = () => {
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
-  const [selectedLocation, setSelectedLocation] = useState(null);
   const inputRef = useRef(null);
 
   const handleSearch = async (e) => {
@@ -137,7 +211,7 @@ const BirdMap = () => {
       display: 'flex', 
       flexDirection: 'column', 
       minHeight: 0,
-      width: 'calc(100% - 2rem)',  // Subtracting left and right padding (1rem each)
+      width: 'calc(100% - 2rem)',
       margin: '0 auto',
     }}>
       <div style={{ 
@@ -207,6 +281,8 @@ const BirdMap = () => {
           </button>
         )}
         <MapContainer
+          updateWhenZooming={false}
+          updateWhenIdle={true}
           center={[36.9741, -122.0308]}
           zoom={12}
           style={{ 
@@ -221,38 +297,14 @@ const BirdMap = () => {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapEvents onMoveEnd={handleMoveEnd} />
+          <PopupInteractionHandler />
           
           {birdSightings.map((location, index) => (
-            <Marker 
+            <BirdMarker
               key={`${location.lat}-${location.lng}-${index}`}
-              position={[location.lat, location.lng]}
+              location={location}
               icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
-              eventHandlers={{
-                click: () => setSelectedLocation(location)
-              }}
-            >
-              <Popup>
-                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                  <h3 style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>
-                    {location.birds.length} {location.birds.length === 1 ? 'Bird' : 'Birds'} at this location
-                  </h3>
-                  {location.birds.map((bird, birdIndex) => (
-                    <div 
-                      key={`${bird.speciesCode}-${birdIndex}`}
-                      style={{ 
-                        borderBottom: birdIndex < location.birds.length - 1 ? '1px solid #e2e8f0' : 'none',
-                        padding: '0.5rem 0'
-                      }}
-                    >
-                      <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
-                      <p style={{ fontSize: '0.9em', color: '#4B5563' }}>
-                        Observed: {new Date(bird.obsDt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </Popup>
-            </Marker>
+            />
           ))}
         </MapContainer>
       </div>
