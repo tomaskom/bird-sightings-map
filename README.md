@@ -19,15 +19,14 @@ An interactive web application that displays notable ("rare") bird sightings on 
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
-- npm or yarn
+- Node.js (v14 or higher) (https://nodejs.org)
 - A valid eBird API key (https://documenter.getpostman.com/view/664302/S1ENwy59)
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/tomaskom/rare-birds
 cd rare-birds
 ```
 
@@ -37,37 +36,49 @@ cd rare-birds
 npm install
 
 # Install client dependencies
-cd client
-npm install
+npm install client/
 ```
 
-3. Create a `.env` file in the root directory and add your eBird API key:
+3. Create a `.env` file in the `rare-birds/server` directory and add your eBird API key:
 ```
 EBIRD_API_KEY=your_api_key_here
 PORT=3000  # Optional, defaults to 3000
 ```
 
-4. Start the development server:
+4. Create a `.env` file in the `rare-birds/client` directory and add the API URL:
+```
+VITE_API_URL=http://localhost:3000
+```
+
+5. Start the server from rare-birds server folder:
+```bash
+cd server
+node start
+```
+ 
+6. In a separate terminal, start the backend:
 ```bash
 cd client
 npm run dev
 ```
- 
-5. In a separate terminal, start the backend:
-```bash
-npm start
-```
+
+7. Navigate a browser window to `http://localhost:3000`
 
 ## Project Structure
 
 ```
-├── client/                 # React frontend
+├── client/                 # Frontend
 │   ├── src/
 │   │   ├── components/
 │   │   │   └── BirdMap.jsx
 │   │   └── ...
-├── server.js              # Express backend
-└── .env                   # Environment variables
+│   ├── .env                # Client environment variables
+│   └── ...
+├── server/                 # Backend
+│   ├── server.js
+│   ├── .env                # Server environment variables
+│   └── ...
+└── ...
 ```
 
 ## Server Implementation
