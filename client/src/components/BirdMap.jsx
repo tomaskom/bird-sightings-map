@@ -219,13 +219,13 @@ const BirdMap = () => {
       
       // Filter out invalid observations
       const validSightings = data.filter(sighting => sighting.obsValid === true);
-      console.log("Valid sightings:", validSightings.length);  // Debug log
+      // console.log("Valid sightings:", validSightings.length);  // Debug log
   
       // Group sightings by location
       const groupedByLocation = _.groupBy(validSightings, sighting => 
         `${sighting.lat},${sighting.lng}`
       );
-      console.log("Grouped locations:", Object.keys(groupedByLocation).length);  // Debug log
+      // console.log("Grouped locations:", Object.keys(groupedByLocation).length);  // Debug log
       
       // Process the grouped sightings to combine birds at the same location
       const processedSightings = Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
@@ -236,7 +236,7 @@ const BirdMap = () => {
         
         // Combine the information for each species
         const birds = Object.entries(birdsBySpecies).map(([comName, speciesSightings]) => {
-          console.log(`Processing ${comName} with ${speciesSightings.length} sightings`);  // Debug log
+        //  console.log(`Processing ${comName} with ${speciesSightings.length} sightings`);  // Debug log
           return {
             ...speciesSightings[0],
             subIds: speciesSightings.map(s => s.subId)
@@ -250,7 +250,7 @@ const BirdMap = () => {
         };
       });
       
-      console.log("Final processed sightings:", processedSightings.length);  // Debug log
+     // console.log("Final processed sightings:", processedSightings.length);  // Debug log
       setBirdSightings(processedSightings);
     } catch (error) {
       console.error('Error fetching bird data:', error);

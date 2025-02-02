@@ -43,7 +43,6 @@ app.get('/api/birds', async (req, res) => {
   const { lat, lng } = req.query;
   
   console.log('Received request for lat:', lat, 'lng:', lng);
-  console.log('Using API key:', process.env.EBIRD_API_KEY);
   
   try {
     const url = `https://api.ebird.org/v2/data/obs/geo/recent/notable?lat=${lat}&lng=${lng}&detail=simple&dist=25&hotspot=false&back=7&maxResults=100`;
@@ -60,7 +59,7 @@ app.get('/api/birds', async (req, res) => {
     
     console.log('eBird API response status:', response.status);
     const responseText = await response.text();
-    console.log('eBird response:', responseText);
+    // console.log('eBird response:', responseText);
 
     if (!response.ok) {
       const errorText = await response.text();
