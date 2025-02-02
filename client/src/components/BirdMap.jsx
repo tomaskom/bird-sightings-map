@@ -70,7 +70,7 @@ const BirdPopupContent = memo(({ birds }) => (
         key={`${bird.speciesCode}-${birdIndex}`}
         style={{ 
           borderBottom: birdIndex < birds.length - 1 ? '1px solid #e2e8f0' : 'none',
-          padding: '0.5rem 0',
+          padding: '0 0',
           minHeight: '4rem'
         }}
       >
