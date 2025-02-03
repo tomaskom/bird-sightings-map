@@ -62,7 +62,7 @@ cd client
 npm run dev
 ```
 
-7. Navigate a browser window to `http://localhost:3000`
+7. Navigate a browser window to either the "Local" or "Network" address listed when the client is launched.  "Ctrl-C" kills the server and "q ENTER" kills the client.
 
 ## Project Structure
 
@@ -180,6 +180,7 @@ The application expects bird sighting data in the following format:
 ![Multiple birds at location](showcase/Screenshot2.png)
 ![Button to update search after map has been panned](showcase/Screenshot4.png)
 ![Another example](showcase/Screenshot3.png)
+![Mobile screenshot](showcase/Screenshot5.png)
 
 ## License
 
