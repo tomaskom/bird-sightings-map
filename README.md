@@ -180,7 +180,8 @@ The application expects bird sighting data in the following format:
 ![Multiple birds at location](showcase/Screenshot2.png)
 ![Button to update search after map has been panned](showcase/Screenshot4.png)
 ![Another example](showcase/Screenshot3.png)
-![Mobile screenshot](showcase/Screenshot5.png)
+<img src="showcase/Screenshot5.png" width="35%" alt="Mobile screenshot">
+
 
 ## License
 
