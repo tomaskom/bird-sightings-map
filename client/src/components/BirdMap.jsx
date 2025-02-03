@@ -368,6 +368,25 @@ const BirdMap = () => {
           ))}
         </MapContainer>
       </div>
+      <div style={{
+        padding: '0.5rem',
+        marginTop: '0',
+        textAlign: 'center',
+        borderTop: '1px solid #e2e8f0'
+      }}>
+        <a
+          href="https://github.com/tomaskom/rare-birds/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: '#3B82F6',
+            textDecoration: 'underline',
+            fontSize: '0.875rem'
+          }}
+        >
+          Report an Issue
+        </a>
+      </div>
     </div>
   );
 };
