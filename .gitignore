@@ -35,6 +35,7 @@ logs
 .DS_Store
 *.sublime-workspace
 *.sublime-project
+.qodo
 
 # Testing
 coverage
