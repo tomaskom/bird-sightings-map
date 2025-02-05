@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Full stack application for mapping records of eBird rare bird sightings",
   "author": "Michelle Tomasko <tomaskom@gmail.com>",
+  "copyright": "Copyright (c) 2025 Michelle Tomasko",
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
