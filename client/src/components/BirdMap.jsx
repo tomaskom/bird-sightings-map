@@ -272,15 +272,13 @@ const BirdMap = () => {
       flexDirection: 'column', 
       minHeight: 0,
       width: 'calc(100% - 2rem)',
-      margin: '0 auto',
+      backgroundColor: '#DAD9D9'
     }}>
       <div style={{ 
         padding: '0.5rem', 
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center',
-        borderBottom: '1px solid #e2e8f0',
-        marginBottom: '1rem',
         gap: '1rem'
       }}>
         <form 
@@ -304,7 +302,7 @@ const BirdMap = () => {
             type="submit"
             style={{
               padding: '0.5rem 1rem',
-              backgroundColor: '#3B82F6',
+              backgroundColor: '#FD7014',
               color: 'white',
               borderRadius: '0.375rem',
               cursor: 'pointer'
@@ -330,7 +328,7 @@ const BirdMap = () => {
               transform: 'translateX(-50%)',
               zIndex: 1000,
               padding: '0.5rem 1rem',
-              backgroundColor: loading ? '#93C5FD' : '#3B82F6',
+              backgroundColor: loading ? '#93C5FD' : '#FD7014',
               color: 'white',
               borderRadius: '0.375rem',
               cursor: loading ? 'not-allowed' : 'pointer',
@@ -353,7 +351,7 @@ const BirdMap = () => {
           ref={setMapRef}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data from <a href="https://ebird.org">eBird</a>'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data from <a href="https://ebird.org">eBird</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html">GPL v3</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapEvents onMoveEnd={handleMoveEnd} />
@@ -367,25 +365,6 @@ const BirdMap = () => {
             />
           ))}
         </MapContainer>
-      </div>
-      <div style={{
-        padding: '0.5rem',
-        marginTop: '0',
-        textAlign: 'center',
-        borderTop: '1px solid #e2e8f0'
-      }}>
-        <a
-          href="https://github.com/tomaskom/rare-birds/issues"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            color: '#3B82F6',
-            textDecoration: 'underline',
-            fontSize: '0.875rem'
-          }}
-        >
-          Report an Issue
-        </a>
       </div>
     </div>
   );
