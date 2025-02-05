@@ -271,7 +271,7 @@ const BirdMap = () => {
       display: 'flex', 
       flexDirection: 'column', 
       minHeight: 0,
-      width: 'calc(100% - 2rem)',
+      width: '100%',
       backgroundColor: '#DAD9D9'
     }}>
       <div style={{ 
@@ -295,7 +295,8 @@ const BirdMap = () => {
               padding: '0.5rem',
               border: '1px solid #e2e8f0',
               borderRadius: '0.375rem',
-              flex: 1
+              flex: 1,
+              backgroundColor: 'white'
             }}
           />
           <button
@@ -344,7 +345,7 @@ const BirdMap = () => {
           center={[36.9741, -122.0308]}
           zoom={12}
           style={{ 
-            height: 'calc(100% - 1rem)', 
+            height: '100%', 
             width: '100%',
             borderRadius: '0.375rem'
           }}
