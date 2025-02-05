@@ -296,7 +296,8 @@ const BirdMap = () => {
               border: '1px solid #e2e8f0',
               borderRadius: '0.375rem',
               flex: 1,
-              backgroundColor: 'white'
+              backgroundColor: 'white',
+              color: 'black'
             }}
           />
           <button
