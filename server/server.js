@@ -33,7 +33,11 @@ console.log('API Key loaded:', process.env.EBIRD_API_KEY ? 'Yes' : 'No');
 const app = express();
 
 // Enable CORS for development
-app.use(cors());
+app.use(cors({
+  origin: 'https://michellestuff.com',
+  methods: ['GET'],
+  credentials: true
+}));
 
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, '../client/dist')));
