@@ -196,6 +196,21 @@ const BirdMap = () => {
     }
   };
 
+  const handleCurrentLocation = () => {
+    if (!mapRef || !navigator.geolocation) return;
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        mapRef.flyTo([latitude, longitude], 12);
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        alert('Unable to get your location');
+      }
+    );
+  };
+
   const handleMoveEnd = useCallback((center) => {
     setMapCenter({ lat: center.lat, lng: center.lng });
     setShowUpdateButton(true);
@@ -210,7 +225,8 @@ const BirdMap = () => {
       const response = await fetch(
          `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}`
        );
-      
+       console.log('API URL:', import.meta.env.VITE_API_URL);
+       
       if (!response.ok) {
         throw new Error('Failed to fetch bird sightings');
       }
@@ -281,6 +297,19 @@ const BirdMap = () => {
         alignItems: 'center',
         gap: '1rem'
       }}>
+                  <button
+     type="button"
+     onClick={handleCurrentLocation}
+     style={{
+       padding: '0.5rem 1rem',
+       backgroundColor: '#FD7014',
+       color: 'white',
+       borderRadius: '0.375rem',
+       cursor: 'pointer'
+     }}
+   >
+     Current Location
+   </button>
         <form 
           onSubmit={handleSearch}
           style={{ display: 'flex', gap: '0.5rem', flex: 1 }}
