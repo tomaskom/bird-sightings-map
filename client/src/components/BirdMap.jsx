@@ -330,7 +330,7 @@ const BirdMap = () => {
               transform: 'translateX(-50%)',
               zIndex: 1000,
               padding: '0.5rem 1rem',
-              backgroundColor: loading ? '#93C5FD' : '#FD7014',
+              backgroundColor: loading ? '#FD8F47' : '#FD7014',
               color: 'white',
               borderRadius: '0.375rem',
               cursor: loading ? 'not-allowed' : 'pointer',
