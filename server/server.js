@@ -34,7 +34,7 @@ const app = express();
 
 // Enable CORS for development
 app.use(cors({
-  origin: 'https://rare-birds.michellestuff.com',
+  origin: process.env.ALLOWED_ORIGINS.split(','),
   methods: ['GET'],
   credentials: true
 }));
