@@ -43,6 +43,7 @@ npm install client/
 ```
 EBIRD_API_KEY=your_api_key_here
 PORT=3000  # Optional, defaults to 3000
+ALLOWED_ORIGINS=http://localhost:5173
 ```
 
 4. Create a `.env` file in the `rare-birds/client` directory and add the API URL:
@@ -62,7 +63,7 @@ cd client
 npm run dev
 ```
 
-7. Navigate a browser window to either the "Local" or "Network" address listed when the client is launched.  "Ctrl-C" kills the server and "q ENTER" kills the client.
+7. Navigate a browser window to either the "Local" address listed when the client is launched.  "Ctrl-C" kills the server and "q ENTER" kills the client.
 
 ## Project Structure
 
