@@ -158,6 +158,7 @@ const BirdMap = () => {
   const [birdSightings, setBirdSightings] = useState([]);
   const [showUpdateButton, setShowUpdateButton] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
   const inputRef = useRef(null);
@@ -198,15 +199,18 @@ const BirdMap = () => {
 
   const handleCurrentLocation = () => {
     if (!mapRef || !navigator.geolocation) return;
-    
+    setLocationLoading(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         mapRef.flyTo([latitude, longitude], 12);
+        setTimeout(() => setLocationLoading(false), 1000); // Wait for map movement
       },
       (error) => {
         console.error('Error getting location:', error);
         alert('Unable to get your location');
+        setLocationLoading(false);
+
       }
     );
   };
@@ -226,7 +230,7 @@ const BirdMap = () => {
          `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}`
        );
        console.log('API URL:', import.meta.env.VITE_API_URL);
-       
+
       if (!response.ok) {
         throw new Error('Failed to fetch bird sightings');
       }
@@ -300,15 +304,16 @@ const BirdMap = () => {
                   <button
      type="button"
      onClick={handleCurrentLocation}
+     disabled={locationLoading}
      style={{
        padding: '0.5rem 1rem',
-       backgroundColor: '#FD7014',
+       backgroundColor: locationLoading ? '#FD8F47' : '#FD7014',
        color: 'white',
        borderRadius: '0.375rem',
-       cursor: 'pointer'
+       cursor: locationLoading ? 'not-allowed' : 'pointer'
      }}
    >
-     Current Location
+     {locationLoading ? 'Loading...' : 'Current Location'}
    </button>
         <form 
           onSubmit={handleSearch}
