@@ -208,7 +208,7 @@ const BirdMap = () => {
       },
       (error) => {
         console.error('Error getting location:', error);
-        alert('Unable to get your location');
+        alert('Unable to get your location.  Check your Location Services settings.');
         setLocationLoading(false);
 
       }
