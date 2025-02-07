@@ -52,52 +52,98 @@ const MultipleIcon = L.divIcon({
 L.Marker.prototype.options.icon = DefaultIcon;
 
 // Memoized popup content component
-const BirdPopupContent = memo(({ birds }) => (
-  <div style={{ 
-    maxHeight: '200px', 
-    overflowY: 'auto',
-    transform: 'translateZ(0)'
-  }}>
-    <h3 style={{ 
-      fontWeight: 'bold', 
-      marginBottom: '0.5rem',
-      minHeight: '1.5rem'
-    }}>
-      {birds.length} {birds.length === 1 ? 'Bird' : 'Birds'} at this location
-    </h3>
-    {birds.map((bird, birdIndex) => (
-      <div 
-        key={`${bird.speciesCode}-${birdIndex}`}
-        style={{ 
-          borderBottom: birdIndex < birds.length - 1 ? '1px solid #e2e8f0' : 'none',
-          padding: '0 0',
-          minHeight: '4rem'
-        }}
-      >
-        <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
-        <p style={{ fontSize: '0.9em', color: '#4B5563' }}>
-          Last Observed: {new Date(bird.obsDt).toLocaleDateString()}
-        </p>
-        <p style={{ fontSize: '0.8em', color: '#6B7280', wordBreak: 'break-all' }}>
-        Checklists: {bird.subIds.map((subId, index) => (
-            <>
-              <a 
-                href={`https://ebird.org/checklist/${subId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: '#3B82F6', textDecoration: 'underline' }}
-              >
-                {subId}
-              </a>
-              {index < bird.subIds.length - 1 ? ', ' : ''}
-            </>
-          ))}
-        </p>
-      </div>
-    ))}
-  </div>
-));
+const BirdPopupContent = memo(({ birds }) => {
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
 
+  return (
+    <>
+      {selectedPhoto && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 2000,
+          cursor: 'pointer'
+        }} onClick={() => setSelectedPhoto(null)}>
+          <img 
+            src={selectedPhoto} 
+            alt="Full size bird" 
+            style={{
+              maxWidth: '90%',
+              maxHeight: '90%',
+              objectFit: 'contain'
+            }}
+          />
+        </div>
+      )}
+      <div style={{ 
+        maxHeight: '225px', 
+        overflowY: 'auto',
+        transform: 'translateZ(0)'
+      }}>
+        <h3 style={{ 
+          fontWeight: 'bold', 
+          marginBottom: '-0.25rem',
+          padding: '0',
+        }}>
+          {birds.length} {birds.length === 1 ? 'Bird' : 'Birds'} at this location
+        </h3>
+        {birds.map((bird, birdIndex) => (
+          <div 
+            key={`${bird.speciesCode}-${birdIndex}`}
+            style={{ 
+              borderBottom: birdIndex < birds.length - 1 ? '1px solid #e2e8f0' : 'none',
+              padding: '0',
+              paddingTop: '0.25rem',
+              paddingBottom: '0.25rem'
+            }}
+          >
+            <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
+            {bird.thumbnailUrl && (
+              <img
+                src={bird.thumbnailUrl}
+                alt={bird.comName}
+                style={{
+                  width: '100px',
+                  height: '75px',
+                  objectFit: 'cover',
+                  cursor: 'pointer',
+                  marginBottom: '0.25rem',
+                  borderRadius: '4px'
+                }}
+                onClick={() => setSelectedPhoto(bird.fullPhotoUrl)}
+              />
+            )}
+            <p style={{ fontSize: '0.9em', color: '#4B5563', margin: '0.25rem' }}>
+              Last Observed: {new Date(bird.obsDt).toLocaleDateString()}
+            </p>
+            <p style={{ fontSize: '0.8em', color: '#6B7280', wordBreak: 'break-all' }}>
+              Checklists: {bird.subIds.map((subId, index) => (
+                <React.Fragment key={subId}>
+                  <a 
+                    href={`https://ebird.org/checklist/${subId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#3B82F6', textDecoration: 'underline' }}
+                  >
+                    {subId}
+                  </a>
+                  {index < bird.subIds.length - 1 ? ', ' : ''}
+                </React.Fragment>
+              ))}
+            </p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+});
 
 // Component for popup interaction handling
 const PopupInteractionHandler = () => {
@@ -227,40 +273,65 @@ const BirdMap = () => {
       const lng = Number(mapCenter.lng.toFixed(4));
       
       const response = await fetch(
-         `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}`
-       );
-       console.log('API URL:', import.meta.env.VITE_API_URL);
-
+        `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}`
+      );
+  
       if (!response.ok) {
         throw new Error('Failed to fetch bird sightings');
       }
       
       const data = await response.json();
-      
-      // Filter out invalid observations
       const validSightings = data.filter(sighting => sighting.obsValid === true);
-      // console.log("Valid sightings:", validSightings.length);  // Debug log
-  
-      // Group sightings by location
       const groupedByLocation = _.groupBy(validSightings, sighting => 
         `${sighting.lat},${sighting.lng}`
       );
-      // console.log("Grouped locations:", Object.keys(groupedByLocation).length);  // Debug log
+  
+      // Get unique species for photo lookup
+      const uniqueSpecies = [...new Set(validSightings.map(
+        sighting => `${sighting.sciName}_${sighting.comName}`
+      ))];
+  
+      // Fetch photos for all species at once
+      let speciesPhotos = {};
+      try {
+        const photoResponse = await fetch('https://app.birdweather.com/api/v1/species/lookup', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            species: uniqueSpecies,
+            fields: ['imageUrl', 'thumbnailUrl']
+          })
+        });
+        
+        if (photoResponse.ok) {
+          const photoData = await photoResponse.json();
+          speciesPhotos = photoData.species;
+        }
+      } catch (error) {
+        console.error('Error fetching species photos:', error);
+      }
       
-      // Process the grouped sightings to combine birds at the same location
       const processedSightings = Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
         const [lat, lng] = locationKey.split(',').map(Number);
-        
-        // Group by species at this location
         const birdsBySpecies = _.groupBy(sightings, 'comName');
         
-        // Combine the information for each species
         const birds = Object.entries(birdsBySpecies).map(([comName, speciesSightings]) => {
-        //  console.log(`Processing ${comName} with ${speciesSightings.length} sightings`);  // Debug log
-          return {
+          const baseData = {
             ...speciesSightings[0],
             subIds: speciesSightings.map(s => s.subId)
           };
+  
+          // Add photo URLs if available
+          const speciesKey = `${baseData.sciName}_${baseData.comName}`;
+          const photoData = speciesPhotos[speciesKey];
+          if (photoData) {
+            baseData.thumbnailUrl = photoData.thumbnailUrl;
+            baseData.fullPhotoUrl = photoData.imageUrl;
+          }
+  
+          return baseData;
         });
         
         return {
@@ -270,7 +341,6 @@ const BirdMap = () => {
         };
       });
       
-     // console.log("Final processed sightings:", processedSightings.length);  // Debug log
       setBirdSightings(processedSightings);
     } catch (error) {
       console.error('Error fetching bird data:', error);
