@@ -199,8 +199,21 @@ const MapEvents = ({ onMoveEnd }) => {
   return null;
 };
 
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
 const BirdMap = () => {
   const [mapCenter, setMapCenter] = useState({ lat: 36.9741, lng: -122.0308 });
+  const [lastQueriedPosition, setLastQueriedPosition] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
   const [showUpdateButton, setShowUpdateButton] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -263,14 +276,27 @@ const BirdMap = () => {
 
   const handleMoveEnd = useCallback((center) => {
     setMapCenter({ lat: center.lat, lng: center.lng });
-    setShowUpdateButton(true);
-  }, []);
+      if (lastQueriedPosition) {
+         const distance = calculateDistance(
+         lastQueriedPosition.lat,
+         lastQueriedPosition.lng,
+         center.lat,
+         center.lng
+      );
+      setShowUpdateButton(distance >= 2);
+      } else {
+         setShowUpdateButton(true); // Show on first load
+      }
+       }, [lastQueriedPosition]);
 
   const fetchBirdData = async () => {
     setLoading(true);
     try {
       const lat = Number(mapCenter.lat.toFixed(4));
       const lng = Number(mapCenter.lng.toFixed(4));
+      
+      // Update last queried position before the fetch
+      setLastQueriedPosition({ lat, lng });
       
       const response = await fetch(
         `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}`
