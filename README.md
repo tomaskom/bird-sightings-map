@@ -135,9 +135,10 @@ GET /api/birds?lat=36.9741&lng=-122.0308
 
 ## API Integration
 
-The application integrates with two external APIs:
+The application integrates with three external APIs:
 1. eBird API (via backend proxy) for bird sighting data
 2. OpenStreetMap's Nominatim API for location search
+3. BirdWeather API for thumbnail and photo URLs
 
 ### Data Format
 
@@ -196,3 +197,4 @@ You should have received a copy of the GNU General Public License along with thi
 - Data provided by [eBird](https://ebird.org)
 - Map tiles from [OpenStreetMap](https://www.openstreetmap.org)
 - Icons from Leaflet's default icon set
+- Photos provided by [BirdWeather](https://birdweather.com)
