@@ -283,7 +283,7 @@ const BirdMap = () => {
          center.lat,
          center.lng
       );
-      setShowUpdateButton(distance >= 2);
+      setShowUpdateButton(distance >= 5);
       } else {
          setShowUpdateButton(true); // Show on first load
       }
