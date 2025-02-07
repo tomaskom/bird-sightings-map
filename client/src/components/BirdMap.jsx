@@ -283,7 +283,7 @@ const BirdMap = () => {
          center.lat,
          center.lng
       );
-      setShowUpdateButton(distance >= 5);
+      setShowUpdateButton(distance >= 10);
       } else {
          setShowUpdateButton(true); // Show on first load
       }
@@ -427,7 +427,8 @@ const BirdMap = () => {
               borderRadius: '0.375rem',
               flex: 1,
               backgroundColor: 'white',
-              color: 'black'
+              color: 'black',
+              fontsize: '16px'
             }}
           />
           <button
@@ -483,7 +484,7 @@ const BirdMap = () => {
           ref={setMapRef}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org">eBird</a> | Photos: <a href="https://birdweather.com">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html">GPL v3</a>'
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapEvents onMoveEnd={handleMoveEnd} />
