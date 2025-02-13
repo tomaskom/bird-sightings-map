@@ -220,6 +220,8 @@ const BirdMap = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
+  const [sightingType, setSightingType] = useState('recent'); // 'recent' or 'rare'
+  const [daysBack, setDaysBack] = useState(7);
   const inputRef = useRef(null);
 
   const handleSearch = async (e) => {
@@ -297,7 +299,7 @@ const BirdMap = () => {
       
       // Update last queried position before the fetch
       setLastQueriedPosition({ lat, lng });
-      
+
       // Calculate the viewport radius in kilometers
       let radius = 25; // Default radius
       if (mapRef) {
@@ -312,9 +314,18 @@ const BirdMap = () => {
         // Use the larger of the two distances, divide by 2 for radius, and cap at 50km
         radius = Math.min(Math.max(xDistance, yDistance) / 2, 50);
       }     
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}&dist=${radius.toFixed(1)}`
-      );
+      console.log("type: ", sightingType);
+
+      // Construct the API URL based on sighting type
+      const params = new URLSearchParams({
+        lat: lat.toString(),
+        lng: lng.toString(),
+        dist: radius.toFixed(1),
+        type: sightingType,
+        back: daysBack.toString()
+      });
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/birds?${params}`);
   
       if (!response.ok) {
         throw new Error('Failed to fetch bird sightings');
@@ -395,6 +406,12 @@ const BirdMap = () => {
     fetchBirdData();
   }, []);
 
+  useEffect(() => {
+    if (!loading) {
+     fetchBirdData();
+   }
+  }, [sightingType]);
+
   return (
     <div style={{ 
       flex: 1, 
@@ -404,27 +421,60 @@ const BirdMap = () => {
       width: '100%',
       backgroundColor: '#DAD9D9'
     }}>
-      <div style={{ 
-        padding: '0.5rem', 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        gap: '1rem'
-      }}>
-                  <button
-     type="button"
-     onClick={handleCurrentLocation}
-     disabled={locationLoading}
-     style={{
-       padding: '0.5rem 1rem',
-       backgroundColor: locationLoading ? '#FD8F47' : '#FD7014',
-       color: 'white',
-       borderRadius: '0.375rem',
-       cursor: locationLoading ? 'not-allowed' : 'pointer'
-     }}
-   >
-     {locationLoading ? 'Loading...' : 'Current Location'}
-   </button>
+
+    <div style={{ 
+      padding: '0.5rem', 
+      display: 'flex', 
+      justifyContent: 'space-between', 
+      alignItems: 'center',
+      gap: '1rem'
+    }}>
+
+     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <select
+            value={sightingType}
+            onChange={(e) => {
+              setSightingType(e.target.value);
+            }}
+            disabled={loading}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: loading ? '#FD8F47' : '#FD7014',
+              color: 'white',
+              borderRadius: '0.375rem',
+              cursor: loading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <option value="recent">Recent Sightings</option>
+            <option value="rare">Rare Birds</option>
+          </select>
+ 
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <input
+              type="number"
+              min="1"
+              max="30"
+              value={daysBack}
+              onChange={(e) => {
+                const value = Math.min(Math.max(1, parseInt(e.target.value) || 1), 30);
+                setDaysBack(value);
+                if (!loading) {
+                  fetchBirdData();
+                }
+              }}
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #e2e8f0',
+                borderRadius: '0.375rem',
+                width: '5rem',
+                backgroundColor: 'white',
+                color: 'black'
+              }}
+            />
+            <span style={{ color: 'black' }}>days</span>
+          </div>
+        </div>    
+
         <form 
           onSubmit={handleSearch}
           style={{ display: 'flex', gap: '0.5rem', flex: 1 }}
@@ -457,6 +507,20 @@ const BirdMap = () => {
           >
             Go
           </button>
+          <button
+     type="button"
+     onClick={handleCurrentLocation}
+     disabled={locationLoading}
+     style={{
+       padding: '0.5rem 1rem',
+       backgroundColor: locationLoading ? '#FD8F47' : '#FD7014',
+       color: 'white',
+       borderRadius: '0.375rem',
+       cursor: locationLoading ? 'not-allowed' : 'pointer'
+     }}
+    >
+      {locationLoading ? 'Loading...' : 'Current Location'}
+    </button>
         </form>
       </div>
       

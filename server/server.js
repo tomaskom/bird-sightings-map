@@ -44,13 +44,15 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // Bird sightings endpoint
 app.get('/api/birds', async (req, res) => {
-  const { lat, lng, dist } = req.query;
+  const { lat, lng, dist, type = 'recent', back = '7' } = req.query;
   
  // console.log('Received request for lat:', lat, 'lng:', lng);
   
   try {
-    const url = `https://api.ebird.org/v2/data/obs/geo/recent/notable?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=7&maxResults=300`;
- //   console.log('Fetching from eBird URL:', url);
+    const baseUrl = 'https://api.ebird.org/v2/data/obs/geo';
+    const endpoint = type === 'rare' ? 'recent/notable' : 'recent';
+    const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}&maxResults=300`;
+    console.log('Fetching from eBird URL:', url);
 
     const response = await fetch(
       url,
@@ -63,7 +65,7 @@ app.get('/api/birds', async (req, res) => {
     
     console.log('eBird API response status:', response.status);
     const responseText = await response.text();
-    // console.log('eBird response:', responseText);
+//    console.log('eBird response:', responseText);
 
     if (!response.ok) {
       const errorText = await response.text();
