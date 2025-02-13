@@ -28,7 +28,7 @@ const express = require('express');
 const cors = require('cors');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 require('dotenv').config();
-console.log('API Key loaded:', process.env.EBIRD_API_KEY ? 'Yes' : 'No');
+//console.log('API Key loaded:', process.env.EBIRD_API_KEY ? 'Yes' : 'No');
 
 const app = express();
 
@@ -44,13 +44,13 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // Bird sightings endpoint
 app.get('/api/birds', async (req, res) => {
-  const { lat, lng } = req.query;
+  const { lat, lng, dist } = req.query;
   
-  console.log('Received request for lat:', lat, 'lng:', lng);
+ // console.log('Received request for lat:', lat, 'lng:', lng);
   
   try {
-    const url = `https://api.ebird.org/v2/data/obs/geo/recent/notable?lat=${lat}&lng=${lng}&detail=simple&dist=25&hotspot=false&back=7&maxResults=100`;
-    console.log('Fetching from eBird URL:', url);
+    const url = `https://api.ebird.org/v2/data/obs/geo/recent/notable?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=7&maxResults=300`;
+ //   console.log('Fetching from eBird URL:', url);
 
     const response = await fetch(
       url,
