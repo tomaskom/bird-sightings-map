@@ -298,8 +298,22 @@ const BirdMap = () => {
       // Update last queried position before the fetch
       setLastQueriedPosition({ lat, lng });
       
+      // Calculate the viewport radius in kilometers
+      let radius = 25; // Default radius
+      if (mapRef) {
+        const bounds = mapRef.getBounds();
+        const ne = bounds.getNorthEast();
+        const sw = bounds.getSouthWest();
+       
+        // Calculate the distances using our existing calculateDistance function
+        const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
+        const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
+       
+        // Use the larger of the two distances, divide by 2 for radius, and cap at 50km
+        radius = Math.min(Math.max(xDistance, yDistance) / 2, 50);
+      }     
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}`
+        `${import.meta.env.VITE_API_URL}/api/birds?lat=${lat}&lng=${lng}&dist=${radius.toFixed(1)}`
       );
   
       if (!response.ok) {
