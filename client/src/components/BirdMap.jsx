@@ -421,16 +421,20 @@ const BirdMap = () => {
       width: '100%',
       backgroundColor: '#DAD9D9'
     }}>
-
-    <div style={{ 
-      padding: '0.5rem', 
-      display: 'flex', 
-      justifyContent: 'space-between', 
-      alignItems: 'center',
-      gap: '1rem'
-    }}>
-
-     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      <div style={{ 
+        padding: '0.5rem', 
+        display: 'flex', 
+        flexWrap: 'wrap',  // Added for mobile responsiveness
+        alignItems: 'flex-start', // Changed from center to prevent stretching
+        gap: '1rem'
+      }}>
+        <div style={{ 
+          display: 'flex', 
+          gap: '0.5rem', 
+          alignItems: 'center',
+          flexWrap: 'wrap',  // Added for mobile responsiveness
+          minWidth: '280px'  // Added to ensure proper wrapping
+        }}>
           <select
             value={sightingType}
             onChange={(e) => {
@@ -442,14 +446,21 @@ const BirdMap = () => {
               backgroundColor: loading ? '#FD8F47' : '#FD7014',
               color: 'white',
               borderRadius: '0.375rem',
-              cursor: loading ? 'not-allowed' : 'pointer'
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '1rem'  
             }}
           >
             <option value="recent">Recent Sightings</option>
-            <option value="rare">Rare Birds</option>
+            <option value="rare">Rare Bird Sightings</option>
           </select>
- 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+  
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.25rem',
+            whiteSpace: 'nowrap'  // Prevent label from wrapping
+          }}>
+            <span style={{ color: 'black' }}>Last</span>
             <input
               type="number"
               min="1"
@@ -466,18 +477,23 @@ const BirdMap = () => {
                 padding: '0.5rem',
                 border: '1px solid #e2e8f0',
                 borderRadius: '0.375rem',
-                width: '5rem',
+                width: '2.25rem',
                 backgroundColor: 'white',
                 color: 'black'
               }}
             />
             <span style={{ color: 'black' }}>days</span>
           </div>
-        </div>    
-
+        </div>
+  
         <form 
           onSubmit={handleSearch}
-          style={{ display: 'flex', gap: '0.5rem', flex: 1 }}
+          style={{ 
+            display: 'flex', 
+            gap: '0.5rem', 
+            flex: 1,
+            minWidth: '280px'  // Added to ensure proper wrapping
+          }}
         >
           <input
             ref={inputRef}
@@ -492,7 +508,7 @@ const BirdMap = () => {
               flex: 1,
               backgroundColor: 'white',
               color: 'black',
-              fontsize: '16px'
+              fontSize: '1rem'  
             }}
           />
           <button
@@ -502,25 +518,27 @@ const BirdMap = () => {
               backgroundColor: '#FD7014',
               color: 'white',
               borderRadius: '0.375rem',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'  // Prevent text wrapping
             }}
           >
             Go
           </button>
           <button
-     type="button"
-     onClick={handleCurrentLocation}
-     disabled={locationLoading}
-     style={{
-       padding: '0.5rem 1rem',
-       backgroundColor: locationLoading ? '#FD8F47' : '#FD7014',
-       color: 'white',
-       borderRadius: '0.375rem',
-       cursor: locationLoading ? 'not-allowed' : 'pointer'
-     }}
-    >
-      {locationLoading ? 'Loading...' : 'Current Location'}
-    </button>
+            type="button"
+            onClick={handleCurrentLocation}
+            disabled={locationLoading}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: locationLoading ? '#FD8F47' : '#FD7014',
+              color: 'white',
+              borderRadius: '0.375rem',
+              cursor: locationLoading ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap'  // Prevent text wrapping
+            }}
+          >
+            {locationLoading ? 'Loading...' : 'Current Location'}
+          </button>
         </form>
       </div>
       
