@@ -410,27 +410,46 @@ const BirdMap = () => {
 
   const handleMoveEnd = useCallback((center) => {
     setMapCenter({ lat: center.lat, lng: center.lng });
-    console.log('lat: ', center.lat);
-    console.log('lng: ', center.lng);
+ //   console.log('lat: ', center.lat);
+ //   console.log('lng: ', center.lng);
   }, []);
 
   const fetchBirdData = async () => {
+
+    // Calculate current viewport radius
+    let currentRadius = 25; // Default radius
+    if (mapRef) {
+      const bounds = mapRef.getBounds();
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+         
+      const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
+      const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
+         
+      currentRadius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
+    }
 
     // Check if parameters have changed
     const paramsChanged = !lastFetchParams || 
      lastFetchParams.daysBack !== daysBack || 
      lastFetchParams.sightingType !== sightingType;
 
+    // Check if radius has changed significantly (more than 1 km)
+    const radiusChanged = lastFetchParams && 
+    Math.abs(lastFetchParams.radius - currentRadius) > 1;
+
     // Check if we should skip fetching based on distance
-    if (!paramsChanged && lastFetchLocation) {
+    if (!paramsChanged && !radiusChanged && lastFetchLocation) {
       const distance = calculateDistance(
         lastFetchLocation.lat,
         lastFetchLocation.lng,
         mapCenter.lat,
         mapCenter.lng
       );
-      if (distance < 3) { // Skip if less than 3 km
-        console.log(`Skipping fetch - only ${distance.toFixed(2)} km from last fetch`);
+      // Calculate sensitivity threshold as 15% of current viewport radius
+      const sensitivityThreshold = currentRadius * 0.15;
+      if (distance < sensitivityThreshold) {
+        // console.log(`Skipping fetch - moved ${distance.toFixed(2)} km, threshold is ${sensitivityThreshold.toFixed(2)} km at ${currentRadius.toFixed(2)} km radius`);
         return;
       }
     }
@@ -438,28 +457,13 @@ const BirdMap = () => {
     setLoading(true);
     try {
       const lat = Number(mapCenter.lat.toFixed(4));
-      const lng = Number(mapCenter.lng.toFixed(4));
-
-      // Calculate the viewport radius in kilometers
-      let radius = 25; // Default radius
-      if (mapRef) {
-        const bounds = mapRef.getBounds();
-        const ne = bounds.getNorthEast();
-        const sw = bounds.getSouthWest();
-       
-        // Calculate the distances using our existing calculateDistance function
-        const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
-        const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
-       
-        // Use the larger of the two distances, divide by 2 for radius, and cap at 25km
-        radius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
-      }     
+      const lng = Number(mapCenter.lng.toFixed(4));   
 
       // Construct the API URL based on sighting type
       const params = new URLSearchParams({
         lat: lat.toString(),
         lng: lng.toString(),
-        dist: radius.toFixed(1),
+        dist: currentRadius.toFixed(1),
         type: sightingType,
         back: daysBack.toString()
       });
@@ -535,7 +539,7 @@ const BirdMap = () => {
 
       // Store the last location we've fetched for
       setLastFetchLocation({ lat, lng });
-      setLastFetchParams({ daysBack, sightingType });
+      setLastFetchParams({ daysBack, sightingType, radius: currentRadius });
 
     } catch (error) {
       console.error('Error fetching bird data:', error);
