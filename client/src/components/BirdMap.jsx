@@ -213,15 +213,13 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 const BirdMap = () => {
   const [mapCenter, setMapCenter] = useState({ lat: 36.9741, lng: -122.0308 });
-  const [lastQueriedPosition, setLastQueriedPosition] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
-  const [showUpdateButton, setShowUpdateButton] = useState(false);
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
   const [sightingType, setSightingType] = useState('recent'); // 'recent' or 'rare'
-  const [daysBack, setDaysBack] = useState(7);
+  const [daysBack, setDaysBack] = useState('7');
   const inputRef = useRef(null);
 
   const handleSearch = async (e) => {
@@ -271,34 +269,22 @@ const BirdMap = () => {
         console.error('Error getting location:', error);
         alert('Unable to get your location.  Check your Location Services settings.');
         setLocationLoading(false);
-
       }
     );
   };
 
   const handleMoveEnd = useCallback((center) => {
     setMapCenter({ lat: center.lat, lng: center.lng });
-      if (lastQueriedPosition) {
-         const distance = calculateDistance(
-         lastQueriedPosition.lat,
-         lastQueriedPosition.lng,
-         center.lat,
-         center.lng
-      );
-      setShowUpdateButton(distance >= 10);
-      } else {
-         setShowUpdateButton(true); // Show on first load
-      }
-       }, [lastQueriedPosition]);
+    console.log('lat: ', center.lat);
+    console.log('lng: ', center.lng);
+  }, []);
 
   const fetchBirdData = async () => {
+    if (!daysBack) return;
     setLoading(true);
     try {
       const lat = Number(mapCenter.lat.toFixed(4));
       const lng = Number(mapCenter.lng.toFixed(4));
-      
-      // Update last queried position before the fetch
-      setLastQueriedPosition({ lat, lng });
 
       // Calculate the viewport radius in kilometers
       let radius = 25; // Default radius
@@ -314,7 +300,6 @@ const BirdMap = () => {
         // Use the larger of the two distances, divide by 2 for radius, and cap at 50km
         radius = Math.min(Math.max(xDistance, yDistance) / 2, 50);
       }     
-      console.log("type: ", sightingType);
 
       // Construct the API URL based on sighting type
       const params = new URLSearchParams({
@@ -401,6 +386,10 @@ const BirdMap = () => {
     }
   };
 
+  const handleDaysChange = (e) => {
+    setDaysBack(e.target.value);
+  };
+
   // Fetch data on component mount
   useEffect(() => {
     fetchBirdData();
@@ -410,7 +399,7 @@ const BirdMap = () => {
     if (!loading) {
      fetchBirdData();
    }
-  }, [sightingType]);
+  }, [daysBack, sightingType, mapCenter]);
 
   return (
     <div style={{ 
@@ -461,27 +450,23 @@ const BirdMap = () => {
             whiteSpace: 'nowrap'  // Prevent label from wrapping
           }}>
             <span style={{ color: 'black' }}>Last</span>
-            <input
-              type="number"
-              min="1"
-              max="30"
+            <select
               value={daysBack}
-              onChange={(e) => {
-                const value = Math.min(Math.max(1, parseInt(e.target.value) || 1), 30);
-                setDaysBack(value);
-                if (!loading) {
-                  fetchBirdData();
-                }
-              }}
+              onChange={handleDaysChange}
               style={{
                 padding: '0.5rem',
                 border: '1px solid #e2e8f0',
                 borderRadius: '0.375rem',
-                width: '2.25rem',
                 backgroundColor: 'white',
                 color: 'black'
               }}
-            />
+            >
+              <option value="1">1</option>
+              <option value="3">3</option>
+              <option value="7">7</option>
+              <option value="14">14</option>
+              <option value="30">30</option>
+            </select>
             <span style={{ color: 'black' }}>days</span>
           </div>
         </div>
@@ -543,30 +528,6 @@ const BirdMap = () => {
       </div>
       
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {showUpdateButton && (
-          <button
-            onClick={() => {
-              fetchBirdData();
-              setShowUpdateButton(false);
-            }}
-            disabled={loading}
-            style={{
-              position: 'absolute',
-              top: '1rem',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 1000,
-              padding: '0.5rem 1rem',
-              backgroundColor: loading ? '#FD8F47' : '#FD7014',
-              color: 'white',
-              borderRadius: '0.375rem',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}
-          >
-            {loading ? 'Fetching...' : 'Update for this area'}
-          </button>
-        )}
         <MapContainer
           updateWhenZooming={false}
           updateWhenIdle={true}
