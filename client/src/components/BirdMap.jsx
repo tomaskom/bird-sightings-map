@@ -655,7 +655,8 @@ const BirdMap = () => {
           style={{ 
             height: '100%', 
             width: '100%',
-            borderRadius: '0.375rem'
+            borderRadius: '0.375rem',
+            position: 'relative'
           }}
           ref={setMapRef}
         >
@@ -674,6 +675,19 @@ const BirdMap = () => {
             />
           ))}
           {showNotification && <FadeNotification />}
+          {loading && (
+            <div 
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 1000,
+                cursor: 'wait'
+              }}
+            />
+          )}
         </MapContainer>
       </div>
     </div>

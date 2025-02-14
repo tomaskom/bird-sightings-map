@@ -75,7 +75,7 @@ app.get('/api/birds', async (req, res) => {
     
    // const data = await response.json();
     const data = JSON.parse(responseText);
-  //  console.log(`Number of bird records returned: ${data.length}`);
+    console.log(`Number of bird records returned: ${data.length}`);
     res.json(data);
   } catch (error) {
     console.error('Error fetching bird data:', error.message);
