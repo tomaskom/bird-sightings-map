@@ -346,6 +346,8 @@ const LocationControl = () => {
 
 const BirdMap = () => {
   const [mapCenter, setMapCenter] = useState({ lat: 36.9741, lng: -122.0308 });
+  const [lastFetchLocation, setLastFetchLocation] = useState(null);
+  const [lastFetchParams, setLastFetchParams] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
@@ -413,7 +415,26 @@ const BirdMap = () => {
   }, []);
 
   const fetchBirdData = async () => {
-    if (!daysBack) return;
+
+    // Check if parameters have changed
+    const paramsChanged = !lastFetchParams || 
+     lastFetchParams.daysBack !== daysBack || 
+     lastFetchParams.sightingType !== sightingType;
+
+    // Check if we should skip fetching based on distance
+    if (!paramsChanged && lastFetchLocation) {
+      const distance = calculateDistance(
+        lastFetchLocation.lat,
+        lastFetchLocation.lng,
+        mapCenter.lat,
+        mapCenter.lng
+      );
+      if (distance < 3) { // Skip if less than 3 km
+        console.log(`Skipping fetch - only ${distance.toFixed(2)} km from last fetch`);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const lat = Number(mapCenter.lat.toFixed(4));
@@ -511,6 +532,11 @@ const BirdMap = () => {
       });
       
       setBirdSightings(processedSightings);
+
+      // Store the last location we've fetched for
+      setLastFetchLocation({ lat, lng });
+      setLastFetchParams({ daysBack, sightingType });
+
     } catch (error) {
       console.error('Error fetching bird data:', error);
       alert('Error fetching bird sightings');
