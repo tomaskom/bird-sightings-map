@@ -26,6 +26,8 @@
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
+import 'leaflet.locatecontrol';
 import _ from 'lodash';
 
 // Marker icon workaround for React-Leaflet
@@ -211,11 +213,97 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+const LocationControl = () => {
+  const map = useMap();
+  const [isLocating, setIsLocating] = useState(false);
+  
+  const handleLocate = useCallback(() => {
+    setIsLocating(true);
+    
+    map.locate({
+      setView: false,
+      enableHighAccuracy: true
+    });
+  }, [map]);
+
+  useEffect(() => {
+    // Create custom control
+    const customControl = L.Control.extend({
+      options: {
+        position: 'topright'
+      },
+      
+      onAdd: function() {
+        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+        const button = L.DomUtil.create('a', 'leaflet-control-locate', container);
+        
+        // Style the button
+        button.style.width = '34px';
+        button.style.height = '34px';
+        button.style.cursor = 'pointer';
+        button.style.display = 'flex';
+        button.style.alignItems = 'center';
+        button.style.justifyContent = 'center';
+        button.style.color = 'white';
+        button.style.backgroundColor = isLocating ? '#FD8F47' : '#FD7014';
+        button.title = 'Show current location';
+        
+        // Add location icon
+        button.innerHTML = `
+          <svg 
+            xmlns="http://www.w3.org/2000/svg" 
+            height="20" 
+            width="20" 
+            viewBox="0 -960 960 960" 
+            fill="white"
+          >
+            <path d="M516-120 402-402 120-516v-56l720-268-268 720h-56Zm26-148 162-436-436 162 196 78 78 196Zm-78-196Z"/>
+          </svg>
+          `;
+        
+        L.DomEvent.on(button, 'click', function(e) {
+          L.DomEvent.stopPropagation(e);
+          L.DomEvent.preventDefault(e);
+          handleLocate();
+        });
+        
+        return container;
+      }
+    });
+    
+    // Add the custom control to the map
+    const locateControl = new customControl();
+    map.addControl(locateControl);
+    
+    // Set up event handlers
+    const onLocationFound = (e) => {
+      map.flyTo(e.latlng, 12);
+      setIsLocating(false);
+    };
+    
+    const onLocationError = (e) => {
+      alert('Unable to get your location. Check your Location Services settings.');
+      setIsLocating(false);
+    };
+    
+    map.on('locationfound', onLocationFound);
+    map.on('locationerror', onLocationError);
+    
+    // Cleanup
+    return () => {
+      map.removeControl(locateControl);
+      map.off('locationfound', onLocationFound);
+      map.off('locationerror', onLocationError);
+    };
+  }, [map, handleLocate, isLocating]);
+  
+  return null;
+};
+
 const BirdMap = () => {
   const [mapCenter, setMapCenter] = useState({ lat: 36.9741, lng: -122.0308 });
   const [birdSightings, setBirdSightings] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [locationLoading, setLocationLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
   const [sightingType, setSightingType] = useState('recent'); // 'recent' or 'rare'
@@ -509,21 +597,6 @@ const BirdMap = () => {
           >
             Go
           </button>
-          <button
-            type="button"
-            onClick={handleCurrentLocation}
-            disabled={locationLoading}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: locationLoading ? '#FD8F47' : '#FD7014',
-              color: 'white',
-              borderRadius: '0.375rem',
-              cursor: locationLoading ? 'not-allowed' : 'pointer',
-              whiteSpace: 'nowrap'  // Prevent text wrapping
-            }}
-          >
-            {locationLoading ? 'Loading...' : 'Current Location'}
-          </button>
         </form>
       </div>
       
@@ -546,7 +619,7 @@ const BirdMap = () => {
           />
           <MapEvents onMoveEnd={handleMoveEnd} />
           <PopupInteractionHandler />
-          
+          <LocationControl />
           {birdSightings.map((location, index) => (
             <BirdMarker
               key={`${location.lat}-${location.lng}-${index}`}
