@@ -51,8 +51,8 @@ app.get('/api/birds', async (req, res) => {
   try {
     const baseUrl = 'https://api.ebird.org/v2/data/obs/geo';
     const endpoint = type === 'rare' ? 'recent/notable' : 'recent';
-    const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}&maxResults=300`;
-    console.log('Fetching from eBird URL:', url);
+    const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}`;
+ //   console.log('Fetching from eBird URL:', url);
 
     const response = await fetch(
       url,
@@ -63,7 +63,7 @@ app.get('/api/birds', async (req, res) => {
       }
     );
     
-    console.log('eBird API response status:', response.status);
+//    console.log('eBird API response status:', response.status);
     const responseText = await response.text();
 //    console.log('eBird response:', responseText);
 
@@ -75,6 +75,7 @@ app.get('/api/birds', async (req, res) => {
     
    // const data = await response.json();
     const data = JSON.parse(responseText);
+  //  console.log(`Number of bird records returned: ${data.length}`);
     res.json(data);
   } catch (error) {
     console.error('Error fetching bird data:', error.message);
@@ -92,5 +93,5 @@ app.get('*', (req, res) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  //console.log(`Server running on port ${port}`);
 });

@@ -190,6 +190,50 @@ const BirdMarker = memo(({ location, icon }) => {
   );
 });
 
+const FadeNotification = () => {
+  const [visible, setVisible] = useState(true);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setVisible(false);
+    }, 8000); // Fade out after 5 seconds
+    
+    return () => clearTimeout(timer);
+  }, []);
+  
+  if (!visible) return null;
+  
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        color: 'white',
+        padding: '12px 20px',
+        borderRadius: '8px',
+        zIndex: 1000,
+        maxWidth: '80%',
+        textAlign: 'center',
+        animation: 'fadeInOut 8s ease-in-out forwards',
+      }}
+    >
+      <style>
+        {`
+          @keyframes fadeInOut {
+            0% { opacity: 0; }
+            10% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { opacity: 0; }
+          }
+        `}
+      </style>
+      eBird API limits the number records returned for recent bird sightings. You may see sightings change as you pan, zoom.
+    </div>
+  );
+};
 // Component to handle map events
 const MapEvents = ({ onMoveEnd }) => {
   const map = useMapEvents({
@@ -309,6 +353,7 @@ const BirdMap = () => {
   const [sightingType, setSightingType] = useState('recent'); // 'recent' or 'rare'
   const [daysBack, setDaysBack] = useState('7');
   const inputRef = useRef(null);
+  const [showNotification, setShowNotification] = useState(true);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -385,8 +430,8 @@ const BirdMap = () => {
         const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
         const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
        
-        // Use the larger of the two distances, divide by 2 for radius, and cap at 50km
-        radius = Math.min(Math.max(xDistance, yDistance) / 2, 50);
+        // Use the larger of the two distances, divide by 2 for radius, and cap at 25km
+        radius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
       }     
 
       // Construct the API URL based on sighting type
@@ -478,9 +523,10 @@ const BirdMap = () => {
     setDaysBack(e.target.value);
   };
 
-  // Fetch data on component mount
+;
+  // Show notification only once on initial mount
   useEffect(() => {
-    fetchBirdData();
+    setShowNotification(true);
   }, []);
 
   useEffect(() => {
@@ -627,6 +673,7 @@ const BirdMap = () => {
               icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
             />
           ))}
+          {showNotification && <FadeNotification />}
         </MapContainer>
       </div>
     </div>
