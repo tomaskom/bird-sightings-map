@@ -795,50 +795,65 @@ const BirdMap = () => {
       </div>
       
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        <MapContainer
-          updateWhenZooming={false}
-          updateWhenIdle={true}
-          center={mapCenter ? [mapCenter.lat, mapCenter.lng] : [36.9741, -122.0308]}
-          zoom={urlParams?.zoom || 12}
-          style={{ 
-            height: '100%', 
+        {!urlParams && (
+          <div style={{
+            height: '100%',
             width: '100%',
-            borderRadius: '0.375rem',
-            position: 'relative'
-          }}
-          ref={setMapRef}
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <MapEvents 
-            onMoveEnd={handleMoveEnd} 
-          />
-          <PopupInteractionHandler />
-          <LocationControl />
-          {birdSightings.map((location, index) => (
-            <BirdMarker
-              key={`${location.lat}-${location.lng}-${index}`}
-              location={location}
-              icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#DAD9D9',
+            borderRadius: '0.375rem'
+          }}>
+            Loading map...
+          </div>
+        )}
+        {urlParams && (
+          <MapContainer
+            updateWhenZooming={false}
+            updateWhenIdle={true}
+            center={mapCenter ? [mapCenter.lat, mapCenter.lng] : [36.9741, -122.0308]}
+            zoom={urlParams?.zoom || 12}
+            style={{ 
+              height: '100%', 
+              width: '100%',
+              borderRadius: '0.375rem',
+              position: 'relative'
+            }}
+            ref={setMapRef}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-          ))}
-          {showNotification && <FadeNotification />}
-          {loading && (
-            <div 
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                zIndex: 1000,
-                cursor: 'wait'
-              }}
+            <MapEvents 
+              onMoveEnd={handleMoveEnd} 
             />
-          )}
-        </MapContainer>
+            <PopupInteractionHandler />
+            <LocationControl />
+            {birdSightings.map((location, index) => (
+              <BirdMarker
+                key={`${location.lat}-${location.lng}-${index}`}
+                location={location}
+                icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+              />
+            ))}
+            {showNotification && <FadeNotification />}
+            {loading && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 1000,
+                  cursor: 'wait'
+                }}
+              />
+            )}
+          </MapContainer>
+        )}
       </div>
     </div>
   );
