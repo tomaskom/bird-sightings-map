@@ -469,7 +469,7 @@ const BirdMap = () => {
     sightingType: 'recent'
   };
   const initialParams = getMapParamsFromUrl();
-  const [mapParams, setUrlParams] = useState(defaultParams);
+  const [urlParams, setUrlParams] = useState(defaultParams);
   const [mapCenter, setMapCenter] = useState({ lat: defaultParams.lat, lng: defaultParams.lng });
   const [lastFetchLocation, setLastFetchLocation] = useState(null);
   const [lastFetchParams, setLastFetchParams] = useState(null);
@@ -831,8 +831,8 @@ const BirdMap = () => {
         <MapContainer
           updateWhenZooming={false}
           updateWhenIdle={true}
-          center={[mapParams.lat, mapParams.lng]}
-          zoom={mapParams.zoom}
+          center={[urlParams.lat, urlParams.lng]}
+          zoom={urlParams.zoom}
           style={{ 
             height: '100%', 
             width: '100%',
