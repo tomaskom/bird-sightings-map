@@ -39,10 +39,12 @@ const getMapParamsFromUrl = () => {
   return new Promise((resolve) => {
     // Handler for receiving message from parent
     const handleMessage = (event) => {
-      if (event.origin.endsWith('squarespace.com')) {
+      console.log("Received message from parent:", event.origin, event.data);
+      if (event.origin === 'https://www.michellestuff.com') {
         window.removeEventListener('message', handleMessage);
         try {
           const params = new URLSearchParams(event.data);
+          console.log("Parsed params:", Object.fromEntries(params));
           resolve({
             lat: parseFloat(params.get('lat')) || 36.9741,
             lng: parseFloat(params.get('lng')) || -122.0308,
@@ -65,12 +67,14 @@ const getMapParamsFromUrl = () => {
 
     // Listen for response from parent
     window.addEventListener('message', handleMessage);
+    console.log("Sending getUrlParams message to parent");
 
     // Request URL params from parent
     window.parent.postMessage('getUrlParams', '*');
 
     // Timeout after 500ms and use defaults
     setTimeout(() => {
+      console.log("Timeout reached, using defaults");
       window.removeEventListener('message', handleMessage);
       resolve({
         lat: 36.9741,
