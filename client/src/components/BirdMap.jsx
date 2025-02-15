@@ -35,6 +35,65 @@ import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
+const getMapParamsFromUrl = () => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      lat: parseFloat(params.get('lat')) || 36.9741,
+      lng: parseFloat(params.get('lng')) || -122.0308,
+      zoom: parseInt(params.get('zoom')) || 12,
+      daysBack: params.get('back') || '7',
+      sightingType: params.get('type') || 'recent'
+    };
+  } catch(error) {
+      console.error('Error parsing URL parameters:', error);
+      return {
+        lat: 36.9741,
+        lng: -122.0308,
+        zoom: 12,
+        back: '7',
+        sightingType: 'recent'
+      };
+  }
+};
+
+const updateUrlParams = (params) => {
+  if (!window.history || !window.history.pushState) {
+    console.warn('Browser does not support history API');
+  return;
+  }
+
+  const url = new URL(window.location.href);
+  const currentParams = url.searchParams;
+
+  // Check each parameter and only update if it's different
+  Object.entries(params).forEach(([key, value]) => {
+   if (value !== undefined) {
+      let paramKey = key === 'daysBack' ? 'back' : key;
+      let paramValue;
+    
+      // Format the value based on parameter type
+      if (key === 'lat' || key === 'lng') {
+        paramValue = value.toFixed(6);
+      } else {
+       paramValue = value.toString();
+      }
+    
+      // Only update if the value has changed
+      const currentValue = currentParams.get(paramKey);
+      if (currentValue !== paramValue) {
+        url.searchParams.set(paramKey, paramValue);
+      }
+    }
+  });
+
+  try {
+    window.history.pushState({ path: url.href }, '', url.toString());
+  } catch (error) {
+  console.error('Error updating URL:', error);
+  }
+};
+
 // Icon for single bird sightings
 const DefaultIcon = L.icon({
   iconUrl: icon,
@@ -239,7 +298,13 @@ const MapEvents = ({ onMoveEnd }) => {
   const map = useMapEvents({
     moveend: () => {
       const center = map.getCenter();
+      const zoom = map.getZoom();
       onMoveEnd(center);
+      updateUrlParams({
+        lat: center.lat,
+        lng: center.lng,
+        zoom: zoom,
+      });
     }
   });
   return null;
@@ -345,15 +410,16 @@ const LocationControl = () => {
 };
 
 const BirdMap = () => {
-  const [mapCenter, setMapCenter] = useState({ lat: 36.9741, lng: -122.0308 });
+  const urlParams = getMapParamsFromUrl();
+  const [mapCenter, setMapCenter] = useState({ lat: urlParams.lat, lng: urlParams.lng });
   const [lastFetchLocation, setLastFetchLocation] = useState(null);
   const [lastFetchParams, setLastFetchParams] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
-  const [sightingType, setSightingType] = useState('recent'); // 'recent' or 'rare'
-  const [daysBack, setDaysBack] = useState('7');
+  const [sightingType, setSightingType] = useState(urlParams.sightingType); // 'recent' or 'rare'
+  const [daysBack, setDaysBack] = useState(urlParams.daysBack);
   const inputRef = useRef(null);
   const [showNotification, setShowNotification] = useState(true);
 
@@ -410,8 +476,6 @@ const BirdMap = () => {
 
   const handleMoveEnd = useCallback((center) => {
     setMapCenter({ lat: center.lat, lng: center.lng });
- //   console.log('lat: ', center.lat);
- //   console.log('lng: ', center.lng);
   }, []);
 
   const fetchBirdData = async () => {
@@ -449,8 +513,7 @@ const BirdMap = () => {
       // Calculate sensitivity threshold as 15% of current viewport radius
       const sensitivityThreshold = currentRadius * 0.15;
       if (distance < sensitivityThreshold) {
-        // console.log(`Skipping fetch - moved ${distance.toFixed(2)} km, threshold is ${sensitivityThreshold.toFixed(2)} km at ${currentRadius.toFixed(2)} km radius`);
-        return;
+       return;
       }
     }
 
@@ -550,7 +613,13 @@ const BirdMap = () => {
   };
 
   const handleDaysChange = (e) => {
-    setDaysBack(e.target.value);
+    const newDays = e.target.value;
+    setDaysBack(newDays);
+    if (mapRef) {
+      updateUrlParams({
+        daysBack: newDays,
+      });
+    }
   };
 
 ;
@@ -591,7 +660,14 @@ const BirdMap = () => {
           <select
             value={sightingType}
             onChange={(e) => {
-              setSightingType(e.target.value);
+              const newType = e.target.value;
+              setSightingType(newType);
+              if (mapRef) {
+                updateUrlParams({
+                  type: newType
+                });
+              }
+              setLastFetchParams(null);
             }}
             disabled={loading}
             style={{
@@ -680,8 +756,8 @@ const BirdMap = () => {
         <MapContainer
           updateWhenZooming={false}
           updateWhenIdle={true}
-          center={[36.9741, -122.0308]}
-          zoom={12}
+          center={[urlParams.lat, urlParams.lng]}
+          zoom={urlParams.zoom}
           style={{ 
             height: '100%', 
             width: '100%',
@@ -694,7 +770,9 @@ const BirdMap = () => {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapEvents onMoveEnd={handleMoveEnd} />
+          <MapEvents 
+            onMoveEnd={handleMoveEnd} 
+          />
           <PopupInteractionHandler />
           <LocationControl />
           {birdSightings.map((location, index) => (
