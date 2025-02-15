@@ -469,25 +469,16 @@ const LocationControl = () => {
 };
 
 const BirdMap = () => {
-  // Set default values initially
-  const defaultParams = {
-    lat: 36.9741,
-    lng: -122.0308,
-    zoom: 12,
-    daysBack: '7',
-    sightingType: 'recent'
-  };
-  const initialParams = getMapParamsFromUrl();
-  const [urlParams, setUrlParams] = useState(defaultParams);
-  const [mapCenter, setMapCenter] = useState({ lat: defaultParams.lat, lng: defaultParams.lng });
+  const [urlParams, setUrlParams] = useState(null);
+  const [mapCenter, setMapCenter] = useState(null);
   const [lastFetchLocation, setLastFetchLocation] = useState(null);
   const [lastFetchParams, setLastFetchParams] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
-  const [sightingType, setSightingType] = useState(urlParams.sightingType); // 'recent' or 'rare'
-  const [daysBack, setDaysBack] = useState(urlParams.daysBack);
+  const [sightingType, setSightingType] = useState(null);
+  const [daysBack, setDaysBack] = useState(null);
   const inputRef = useRef(null);
   const [showNotification, setShowNotification] = useState(true);
 
@@ -697,8 +688,9 @@ const BirdMap = () => {
   }, []);
 
   useEffect(() => {
-    if (!loading && mapCenter.lat && mapCenter.lng) {
-     fetchBirdData();
+    if (!loading && mapCenter && sightingType && daysBack) {
+      console.log('Fetching with params:', { mapCenter, sightingType, daysBack }); 
+      fetchBirdData();
    }
   }, [daysBack, sightingType, mapCenter]);
 
@@ -842,8 +834,8 @@ const BirdMap = () => {
         <MapContainer
           updateWhenZooming={false}
           updateWhenIdle={true}
-          center={[urlParams.lat, urlParams.lng]}
-          zoom={urlParams.zoom}
+          center={mapCenter ? [mapCenter.lat, mapCenter.lng] : [36.9741, -122.0308]}
+          zoom={urlParams?.zoom || 12}
           style={{ 
             height: '100%', 
             width: '100%',
