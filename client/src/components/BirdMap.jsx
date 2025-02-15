@@ -590,8 +590,8 @@ const BirdMap = () => {
         mapCenter.lat,
         mapCenter.lng
       );
-      // Calculate sensitivity threshold as 50% of current viewport radius
-      const sensitivityThreshold = currentRadius * 0.50;
+      // Calculate sensitivity threshold as 80% of current viewport radius
+      const sensitivityThreshold = currentRadius * 0.80;
       if (distance < sensitivityThreshold) {
        return;
       }
@@ -606,7 +606,7 @@ const BirdMap = () => {
       const params = new URLSearchParams({
         lat: lat.toString(),
         lng: lng.toString(),
-        dist: currentRadius.toFixed(1),
+        dist: (currentRadius + 1).toFixed(1),
         type: sightingType,
         back: daysBack.toString()
       });
