@@ -37,8 +37,16 @@ import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const getMapParamsFromUrl = () => {
   try {
+
     const parentUrl = window.parent?.location?.href || window.location.href;
-    const params = new URLSearchParams(new URL(parentUrl).search);
+    console.log("Parent or current URL:", parentUrl);
+    
+    const url = new URL(parentUrl);
+    console.log("Parsed URL:", url);
+
+    const params = new URLSearchParams(url.search);
+    console.log("URL params:", Object.fromEntries(params));
+
     return {
       lat: parseFloat(params.get('lat')) || 36.9741,
       lng: parseFloat(params.get('lng')) || -122.0308,
@@ -48,6 +56,11 @@ const getMapParamsFromUrl = () => {
     };
   } catch(error) {
       console.error('Error parsing URL parameters:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
       return {
         lat: 36.9741,
         lng: -122.0308,
