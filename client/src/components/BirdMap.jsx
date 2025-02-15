@@ -36,39 +36,51 @@ import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const getMapParamsFromUrl = () => {
-  try {
-
-    const parentUrl = window.parent?.location?.href || window.location.href;
-    console.log("Parent or current URL:", parentUrl);
-    
-    const url = new URL(parentUrl);
-    console.log("Parsed URL:", url);
-
-    const params = new URLSearchParams(url.search);
-    console.log("URL params:", Object.fromEntries(params));
-
-    return {
-      lat: parseFloat(params.get('lat')) || 36.9741,
-      lng: parseFloat(params.get('lng')) || -122.0308,
-      zoom: parseInt(params.get('zoom')) || 12,
-      daysBack: params.get('back') || '7',
-      sightingType: params.get('type') || 'recent'
+  return new Promise((resolve) => {
+    // Handler for receiving message from parent
+    const handleMessage = (event) => {
+      if (event.origin.endsWith('squarespace.com')) {
+        window.removeEventListener('message', handleMessage);
+        try {
+          const params = new URLSearchParams(event.data);
+          resolve({
+            lat: parseFloat(params.get('lat')) || 36.9741,
+            lng: parseFloat(params.get('lng')) || -122.0308,
+            zoom: parseInt(params.get('zoom')) || 12,
+            daysBack: params.get('back') || '7',
+            sightingType: params.get('type') || 'recent'
+          });
+        } catch(error) {
+          console.error('Error parsing URL parameters:', error);
+          resolve({
+            lat: 36.9741,
+            lng: -122.0308,
+            zoom: 12,
+            back: '7',
+            sightingType: 'recent'
+          });
+        }
+      }
     };
-  } catch(error) {
-      console.error('Error parsing URL parameters:', error);
-      console.error('Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
-      return {
+
+    // Listen for response from parent
+    window.addEventListener('message', handleMessage);
+
+    // Request URL params from parent
+    window.parent.postMessage('getUrlParams', '*');
+
+    // Timeout after 500ms and use defaults
+    setTimeout(() => {
+      window.removeEventListener('message', handleMessage);
+      resolve({
         lat: 36.9741,
         lng: -122.0308,
         zoom: 12,
         back: '7',
         sightingType: 'recent'
-      };
-  }
+      });
+    }, 500);
+  });
 };
 
 const updateUrlParams = (params) => {
@@ -448,8 +460,17 @@ const LocationControl = () => {
 };
 
 const BirdMap = () => {
-  const urlParams = getMapParamsFromUrl();
-  const [mapCenter, setMapCenter] = useState({ lat: urlParams.lat, lng: urlParams.lng });
+  // Set default values initially
+  const defaultParams = {
+    lat: 36.9741,
+    lng: -122.0308,
+    zoom: 12,
+    daysBack: '7',
+    sightingType: 'recent'
+  };
+  const initialParams = getMapParamsFromUrl();
+  const [mapParams, setUrlParams] = useState(defaultParams);
+  const [mapCenter, setMapCenter] = useState({ lat: defaultParams.lat, lng: defaultParams.lng });
   const [lastFetchLocation, setLastFetchLocation] = useState(null);
   const [lastFetchParams, setLastFetchParams] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
@@ -672,6 +693,22 @@ const BirdMap = () => {
    }
   }, [daysBack, sightingType, mapCenter]);
 
+    // Load URL parameters on component mount
+    useEffect(() => {
+      const loadUrlParams = async () => {
+        try {
+          const params = await getMapParamsFromUrl();
+          setUrlParams(params);
+          setMapCenter({ lat: params.lat, lng: params.lng });
+          setSightingType(params.sightingType);
+          setDaysBack(params.daysBack);
+        } catch (error) {
+          console.error('Error loading URL parameters:', error);
+        }
+      };
+      loadUrlParams();
+    }, []);
+
   return (
     <div style={{ 
       flex: 1, 
@@ -794,8 +831,8 @@ const BirdMap = () => {
         <MapContainer
           updateWhenZooming={false}
           updateWhenIdle={true}
-          center={[urlParams.lat, urlParams.lng]}
-          zoom={urlParams.zoom}
+          center={[mapParams.lat, mapParams.lng]}
+          zoom={mapParams.zoom}
           style={{ 
             height: '100%', 
             width: '100%',
