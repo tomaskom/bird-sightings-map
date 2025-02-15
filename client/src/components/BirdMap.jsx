@@ -94,62 +94,26 @@ const getMapParamsFromUrl = () => {
 
 const updateUrlParams = (params) => {
   try {
-    // Determine if we're in an iframe
-    const isInIframe = window.parent && window.parent !== window;
-    
-    // Get the appropriate URL and history object
-    const targetUrl = isInIframe 
-      ? new URL(window.parent.location.href)
-      : new URL(window.location.href);
-    const targetHistory = isInIframe ? window.parent.history : window.history;
-    
-    if (!targetHistory || !targetHistory.pushState) {
-      console.warn('Browser does not support history API');
-      return;
-    }
-
-    const currentParams = targetUrl.searchParams;
-
-    // Check each parameter and only update if it's different
+    // Format parameters
+    const formattedParams = {};
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) {
-        let paramKey = key === 'daysBack' ? 'back' : key;
-        let paramValue;
-    
-        // Format the value based on parameter type
         if (key === 'lat' || key === 'lng') {
-          paramValue = value.toFixed(6);
+          formattedParams[key] = parseFloat(value.toFixed(6));
         } else {
-          paramValue = value.toString();
-        }
-    
-        // Only update if the value has changed
-        const currentValue = currentParams.get(paramKey);
-        if (currentValue !== paramValue) {
-          url.searchParams.set(paramKey, paramValue);
+          formattedParams[key] = value;
         }
       }
     });
-
-    targetHistory.pushState({ path: targetUrl.href }, '', targetUrl.toString());
+    
+    // Send message to parent
+    window.parent.postMessage({
+      type: 'updateUrlParams',
+      params: formattedParams
+    }, 'https://www.michellestuff.com');
 
   } catch (error) {
-  console.error('Error updating URL:', error);
-
-    // Fallback: If we don't have access to parent frame due to same-origin policy,
-    // at least update our own URL
-    try {
-      const url = new URL(window.location.href);
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          let paramKey = key === 'daysBack' ? 'back' : key;
-          url.searchParams.set(paramKey, value.toString());
-        }
-      });
-      window.history.pushState({ path: url.href }, '', url.toString());
-    } catch (fallbackError) {
-      console.error('Error in fallback URL update:', fallbackError);
-    }
+    console.error('Error sending parameters to parent:', error);
   }
 };
 
