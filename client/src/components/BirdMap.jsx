@@ -358,13 +358,21 @@ const FadeNotification = () => {
           }
         `}
       </style>
-      eBird API limits the number records returned for recent bird sightings. You may see sightings change as you pan, zoom.
+      eBird API limits the number records returned for recent bird sightings. You may see sightings change as you pan and increase as you zoom in.
     </div>
   );
 };
 // Component to handle map events
-const MapEvents = ({ onMoveEnd }) => {
+const MapEvents = ({ onMoveEnd, isPopupMoving }) => {
   const map = useMapEvents({
+    dragstart: () => {
+      // Close all popups only when user starts dragging
+      map.eachLayer((layer) => {
+        if (layer.getPopup && layer.getPopup()) {
+          layer.closePopup();
+        }
+      });
+    },
     moveend: () => {
       const center = map.getCenter();
       const zoom = map.getZoom();
@@ -489,6 +497,7 @@ const BirdMap = () => {
   const [mapRef, setMapRef] = useState(null);
   const [sightingType, setSightingType] = useState('recent');
   const [daysBack, setDaysBack] = useState('7');
+  const [isPopupMoving, setIsPopupMoving] = useState(false);
   const inputRef = useRef(null);
   const [showNotification, setShowNotification] = useState(true);
 
@@ -544,8 +553,10 @@ const BirdMap = () => {
   };
 
   const handleMoveEnd = useCallback((center) => {
-    setMapCenter({ lat: center.lat, lng: center.lng });
-  }, []);
+    if (!isPopupMoving) {
+      setMapCenter({ lat: center.lat, lng: center.lng });
+    }
+  }, [isPopupMoving]);
 
   const fetchBirdData = async () => {
 
@@ -579,8 +590,8 @@ const BirdMap = () => {
         mapCenter.lat,
         mapCenter.lng
       );
-      // Calculate sensitivity threshold as 20% of current viewport radius
-      const sensitivityThreshold = currentRadius * 0.20;
+      // Calculate sensitivity threshold as 50% of current viewport radius
+      const sensitivityThreshold = currentRadius * 0.50;
       if (distance < sensitivityThreshold) {
        return;
       }
@@ -873,7 +884,7 @@ const BirdMap = () => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <MapEvents 
-              onMoveEnd={handleMoveEnd} 
+              onMoveEnd={handleMoveEnd}
             />
             <PopupInteractionHandler />
             <LocationControl />
