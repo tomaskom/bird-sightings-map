@@ -37,11 +37,14 @@ import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const getMapParamsFromUrl = () => {
   return new Promise((resolve) => {
+    let isResolved = false;
     // Handler for receiving message from parent
     const handleMessage = (event) => {
       console.log("Received message from parent:", event.origin, event.data);
       if (event.origin === 'https://www.michellestuff.com') {
         window.removeEventListener('message', handleMessage);
+        if (isResolved) return;
+        isResolved = true;
         try {
           const params = new URLSearchParams(event.data);
           console.log("Parsed params:", Object.fromEntries(params));
@@ -74,6 +77,8 @@ const getMapParamsFromUrl = () => {
 
     // Timeout after 500ms and use defaults
     setTimeout(() => {
+      if (isResolved) return;
+      isResolved = true;
       console.log("Timeout reached, using defaults");
       window.removeEventListener('message', handleMessage);
       resolve({
@@ -692,7 +697,7 @@ const BirdMap = () => {
   }, []);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && mapCenter.lat && mapCenter.lng) {
      fetchBirdData();
    }
   }, [daysBack, sightingType, mapCenter]);
@@ -706,6 +711,8 @@ const BirdMap = () => {
           setMapCenter({ lat: params.lat, lng: params.lng });
           setSightingType(params.sightingType);
           setDaysBack(params.daysBack);
+          // Force a fetch with the new parameters
+          setLastFetchParams(null);
         } catch (error) {
           console.error('Error loading URL parameters:', error);
         }
