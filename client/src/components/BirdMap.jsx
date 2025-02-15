@@ -37,17 +37,13 @@ import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const getMapParamsFromUrl = () => {
   return new Promise((resolve) => {
-    let isResolved = false;
-    // Handler for receiving message from parent
-    const handleMessage = (event) => {
-      console.log("Received message from parent:", event.origin, event.data);
-      if (event.origin === 'https://www.michellestuff.com') {
-        window.removeEventListener('message', handleMessage);
-        if (isResolved) return;
-        isResolved = true;
+    // Check if we're in an iframe
+      const isInIframe = window !== window.parent;
+
+      // If not in iframe, parse URL directly
+      if (!isInIframe) {
         try {
-          const params = new URLSearchParams(event.data);
-          console.log("Parsed params:", Object.fromEntries(params));
+          const params = new URLSearchParams(window.location.search);
           resolve({
             lat: parseFloat(params.get('lat')) || 36.9741,
             lng: parseFloat(params.get('lng')) || -122.0308,
@@ -56,7 +52,38 @@ const getMapParamsFromUrl = () => {
             sightingType: params.get('type') || 'recent'
           });
         } catch(error) {
-          console.error('Error parsing URL parameters:', error);
+        console.error('Error parsing URL parameters:', error);
+        resolve({
+          lat: 36.9741,
+          lng: -122.0308,
+          zoom: 12,
+          daysBack: '7',
+          sightingType: 'recent'
+        });
+      }
+      return;
+    }
+   
+    let isResolved = false;
+    // Handler for receiving message from parent
+    const handleMessage = (event) => {
+      //console.log("Received message from parent:", event.origin, event.data);
+      if (event.origin === 'https://www.michellestuff.com') {
+        window.removeEventListener('message', handleMessage);
+        if (isResolved) return;
+        isResolved = true;
+        try {
+          const params = new URLSearchParams(event.data);
+          //console.log("Parsed params:", Object.fromEntries(params));
+          resolve({
+            lat: parseFloat(params.get('lat')) || 36.9741,
+            lng: parseFloat(params.get('lng')) || -122.0308,
+            zoom: parseInt(params.get('zoom')) || 12,
+            daysBack: params.get('back') || '7',
+            sightingType: params.get('type') || 'recent'
+          });
+        } catch(error) {
+          //console.error('Error parsing URL parameters:', error);
           resolve({
             lat: 36.9741,
             lng: -122.0308,
@@ -70,7 +97,7 @@ const getMapParamsFromUrl = () => {
 
     // Listen for response from parent
     window.addEventListener('message', handleMessage);
-    console.log("Sending getUrlParams message to parent");
+    //console.log("Sending getUrlParams message to parent");
 
     // Request URL params from parent
     window.parent.postMessage('getUrlParams', '*');
@@ -79,7 +106,7 @@ const getMapParamsFromUrl = () => {
     setTimeout(() => {
       if (isResolved) return;
       isResolved = true;
-      console.log("Timeout reached, using defaults");
+      //console.log("Timeout reached, using defaults");
       window.removeEventListener('message', handleMessage);
       resolve({
         lat: 36.9741,
@@ -94,6 +121,25 @@ const getMapParamsFromUrl = () => {
 
 const updateUrlParams = (params) => {
   try {
+    // Check if we're in an iframe
+    const isInIframe = window !== window.parent;
+
+    if (!isInIframe) {
+      // If not in iframe, update URL directly
+      const url = new URL(window.location.href);
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) {
+          let paramKey = key === 'daysBack' ? 'back' : key;
+          let paramValue = (key === 'lat' || key === 'lng') 
+            ? parseFloat(value.toFixed(6)) 
+            : value.toString();
+          url.searchParams.set(paramKey, paramValue);
+        }
+      });
+      window.history.pushState({ path: url.href }, '', url.toString());
+      return;
+    }
+
     // Format parameters
     const formattedParams = {};
     Object.entries(params).forEach(([key, value]) => {
@@ -441,8 +487,8 @@ const BirdMap = () => {
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
-  const [sightingType, setSightingType] = useState(null);
-  const [daysBack, setDaysBack] = useState(null);
+  const [sightingType, setSightingType] = useState('recent');
+  const [daysBack, setDaysBack] = useState('7');
   const inputRef = useRef(null);
   const [showNotification, setShowNotification] = useState(true);
 
@@ -653,7 +699,7 @@ const BirdMap = () => {
 
   useEffect(() => {
     if (!loading && mapCenter && sightingType && daysBack) {
-      console.log('Fetching with params:', { mapCenter, sightingType, daysBack }); 
+      //console.log('Fetching with params:', { mapCenter, sightingType, daysBack }); 
       fetchBirdData();
    }
   }, [daysBack, sightingType, mapCenter]);
@@ -757,7 +803,7 @@ const BirdMap = () => {
           onSubmit={handleSearch}
           style={{ 
             display: 'flex', 
-            gap: '0.5rem', 
+            gap: '0.25rem', 
             flex: 1,
             minWidth: '280px'  // Added to ensure proper wrapping
           }}
