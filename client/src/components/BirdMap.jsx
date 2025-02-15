@@ -579,8 +579,8 @@ const BirdMap = () => {
         mapCenter.lat,
         mapCenter.lng
       );
-      // Calculate sensitivity threshold as 15% of current viewport radius
-      const sensitivityThreshold = currentRadius * 0.15;
+      // Calculate sensitivity threshold as 20% of current viewport radius
+      const sensitivityThreshold = currentRadius * 0.20;
       if (distance < sensitivityThreshold) {
        return;
       }
@@ -886,18 +886,64 @@ const BirdMap = () => {
             ))}
             {showNotification && <FadeNotification />}
             {loading && (
-              <div 
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  zIndex: 1000,
-                  cursor: 'wait'
-                }}
-              />
-            )}
+    <div 
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1000,
+        touchAction: 'none',
+        pointerEvents: 'all',
+        userSelect: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        MozUserSelect: 'none',
+        msUserSelect: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+      onTouchStart={(e) => e.preventDefault()}
+      onTouchMove={(e) => e.preventDefault()}
+      onTouchEnd={(e) => e.preventDefault()}
+      onClick={(e) => e.preventDefault()}
+    >
+      <div style={{
+        width: '40px',
+        height: '40px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(253, 112, 20, 0.8)',
+        borderRadius: '50%',
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.7)'
+      }}>
+        <svg 
+          width="24" 
+          height="24" 
+          viewBox="0 0 24 24"
+          style={{
+            animation: 'spin 1s linear infinite',
+            color: '#ffffff'
+          }}
+        >
+          <style>
+            {`
+              @keyframes spin {
+                to { transform: rotate(360deg); }
+              }
+            `}
+          </style>
+          <path
+            fill="currentColor"
+            d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"
+          />
+        </svg>
+      </div>
+    </div>
+  )}
           </MapContainer>
         )}
       </div>
