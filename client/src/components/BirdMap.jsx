@@ -822,9 +822,26 @@ const fetchBirdData = async () => {
   };
 
   useEffect(() => {
+    debug.debug('Fetch effect running with:', { 
+         loading, 
+         mapCenter, 
+         sightingType, 
+         back, 
+         zoom,
+         hasMapRef: !!mapRef 
+    });
     if (!loading && mapCenter && sightingType && back && zoom && mapRef) {
       debug.debug('Triggering bird data fetch:', { mapCenter, sightingType, back, zoom });
       fetchBirdData();
+    } else {
+      debug.debug('Not fetching because:', {
+          loading,
+          hasMapCenter: !!mapCenter,
+          hasSightingType: !!sightingType,
+          hasBack: !!back,
+          hasZoom: !!zoom,
+          hasMapRef: !!mapRef
+      });
     }
   }, [back, sightingType, mapCenter, zoom]);
 
@@ -993,7 +1010,10 @@ const fetchBirdData = async () => {
               borderRadius: '0.375rem',
               position: 'relative'
             }}
-            ref={setMapRef}
+            ref={(ref) => {
+              debug.debug('MapContainer ref callback:', { hasRef: !!ref });
+              setMapRef(ref);
+            }} 
           >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
