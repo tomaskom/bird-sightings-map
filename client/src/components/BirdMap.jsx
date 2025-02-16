@@ -14,17 +14,19 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Project: rare-birds
- * Description: Map for eBird records of rare bird sightings
+ * Project: bird-sightings-map
+ * Description: Map for eBird records of bird sightings
  * 
  * Dependencies:
  * - OpenStreetMap data © OpenStreetMap contributors (ODbL)
  * - Leaflet © 2010-2024 Vladimir Agafonkin (BSD-2-Clause)
  * - eBird data provided by Cornell Lab of Ornithology
+ * - Photos provided by BirdWeather
  */
 
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Marker, Popup, useMap } from 'react-leaflet';
+import { debug } from '../../utils/debug';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
 import 'leaflet.locatecontrol';
@@ -38,52 +40,53 @@ import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 const getMapParamsFromUrl = () => {
   return new Promise((resolve) => {
     // Check if we're in an iframe
-      const isInIframe = window !== window.parent;
+    const isInIframe = window !== window.parent;
 
-      // If not in iframe, parse URL directly
-      if (!isInIframe) {
-        try {
-          const params = new URLSearchParams(window.location.search);
-          resolve({
-            lat: parseFloat(params.get('lat')) || 36.9741,
-            lng: parseFloat(params.get('lng')) || -122.0308,
-            zoom: parseInt(params.get('zoom')) || 12,
-            daysBack: params.get('back') || '7',
-            sightingType: params.get('type') || 'recent'
-          });
-        } catch(error) {
-        console.error('Error parsing URL parameters:', error);
+    // If not in iframe, parse URL directly
+    if (!isInIframe) {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        debug.debug('Parsing URL parameters directly:', Object.fromEntries(params));
+        resolve({
+          lat: parseFloat(params.get('lat')) || 36.9741,
+          lng: parseFloat(params.get('lng')) || -122.0308,
+          zoom: parseInt(params.get('zoom')) || 12,
+          back: params.get('back') || '7',
+          sightingType: params.get('type') || 'recent'
+        });
+      } catch(error) {
+        debug.error('Error parsing URL parameters:', error);
         resolve({
           lat: 36.9741,
           lng: -122.0308,
           zoom: 12,
-          daysBack: '7',
+          back: '7',
           sightingType: 'recent'
         });
       }
       return;
     }
-   
+
     let isResolved = false;
     // Handler for receiving message from parent
     const handleMessage = (event) => {
-      //console.log("Received message from parent:", event.origin, event.data);
+      debug.debug('Received message from parent:', event.origin, event.data);
       if (event.origin === 'https://www.michellestuff.com') {
         window.removeEventListener('message', handleMessage);
         if (isResolved) return;
         isResolved = true;
         try {
           const params = new URLSearchParams(event.data);
-          //console.log("Parsed params:", Object.fromEntries(params));
+          debug.debug('Parsed iframe params:', Object.fromEntries(params));
           resolve({
             lat: parseFloat(params.get('lat')) || 36.9741,
             lng: parseFloat(params.get('lng')) || -122.0308,
             zoom: parseInt(params.get('zoom')) || 12,
-            daysBack: params.get('back') || '7',
+            back: params.get('back') || '7',
             sightingType: params.get('type') || 'recent'
           });
         } catch(error) {
-          //console.error('Error parsing URL parameters:', error);
+          debug.error('Error parsing URL parameters from iframe:', error);
           resolve({
             lat: 36.9741,
             lng: -122.0308,
@@ -97,16 +100,16 @@ const getMapParamsFromUrl = () => {
 
     // Listen for response from parent
     window.addEventListener('message', handleMessage);
-    //console.log("Sending getUrlParams message to parent");
 
     // Request URL params from parent
+    debug.debug('Sending getUrlParams message to parent');
     window.parent.postMessage('getUrlParams', '*');
 
     // Timeout after 500ms and use defaults
     setTimeout(() => {
       if (isResolved) return;
       isResolved = true;
-      //console.log("Timeout reached, using defaults");
+      debug.debug('Timeout reached, using defaults');
       window.removeEventListener('message', handleMessage);
       resolve({
         lat: 36.9741,
@@ -129,13 +132,14 @@ const updateUrlParams = (params) => {
       const url = new URL(window.location.href);
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined) {
-          let paramKey = key === 'daysBack' ? 'back' : key;
+          let paramKey = key === 'back' ? 'back' : key;
           let paramValue = (key === 'lat' || key === 'lng') 
             ? parseFloat(value.toFixed(6)) 
             : value.toString();
           url.searchParams.set(paramKey, paramValue);
         }
       });
+      debug.debug('Updating URL params directly:', Object.fromEntries(url.searchParams));
       window.history.pushState({ path: url.href }, '', url.toString());
       return;
     }
@@ -153,15 +157,16 @@ const updateUrlParams = (params) => {
     });
     
     // Send message to parent
+    debug.debug('Sending parameters to parent:', formattedParams);
     window.parent.postMessage({
       type: 'updateUrlParams',
       params: formattedParams
     }, 'https://www.michellestuff.com');
-
   } catch (error) {
-    console.error('Error sending parameters to parent:', error);
+    debug.error('Error sending parameters to parent:', error);
   }
 };
+
 
 // Icon for single bird sightings
 const DefaultIcon = L.icon({
@@ -174,33 +179,54 @@ const DefaultIcon = L.icon({
 // Create a special icon for locations with multiple birds
 const MultipleIcon = L.divIcon({
   className: 'custom-div-icon',
-  html: '<div style="background-color: #3B82F6; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white;">+</div>',
+  html: `
+    <div style="
+      background-color: #3B82F6; 
+      color: white; 
+      border-radius: 50%; 
+      width: 30px; 
+      height: 30px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      border: 2px solid white;
+    ">+</div>
+  `,
   iconSize: [30, 30],
   iconAnchor: [15, 15]
 });
 
+debug.debug('Initializing map icons');
 L.Marker.prototype.options.icon = DefaultIcon;
 
 // Memoized popup content component
 const BirdPopupContent = memo(({ birds }) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  
+  debug.debug('Rendering popup content for birds:', birds.length);
 
   return (
     <>
       {selectedPhoto && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000,
-          cursor: 'pointer'
-        }} onClick={() => setSelectedPhoto(null)}>
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 2000,
+            cursor: 'pointer'
+          }} 
+          onClick={() => {
+            debug.debug('Closing full-size photo view');
+            setSelectedPhoto(null);
+          }}
+        >
           <img 
             src={selectedPhoto} 
             alt="Full size bird" 
@@ -247,20 +273,34 @@ const BirdPopupContent = memo(({ birds }) => {
                   marginBottom: '0.25rem',
                   borderRadius: '4px'
                 }}
-                onClick={() => setSelectedPhoto(bird.fullPhotoUrl)}
+                onClick={() => {
+                  debug.debug('Opening full-size photo for:', bird.comName);
+                  setSelectedPhoto(bird.fullPhotoUrl);
+                }}
               />
             )}
-            <p style={{ fontSize: '0.9em', color: '#4B5563', margin: '0.25rem' }}>
+            <p style={{ 
+              fontSize: '0.9em', 
+              color: '#4B5563', 
+              margin: '0.25rem' 
+            }}>
               Last Observed: {new Date(bird.obsDt).toLocaleDateString()}
             </p>
-            <p style={{ fontSize: '0.8em', color: '#6B7280', wordBreak: 'break-all' }}>
+            <p style={{ 
+              fontSize: '0.8em', 
+              color: '#6B7280', 
+              wordBreak: 'break-all' 
+            }}>
               Checklists: {bird.subIds.map((subId, index) => (
                 <React.Fragment key={subId}>
                   <a 
                     href={`https://ebird.org/checklist/${subId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: '#3B82F6', textDecoration: 'underline' }}
+                    style={{ 
+                      color: '#3B82F6', 
+                      textDecoration: 'underline' 
+                    }}
                   >
                     {subId}
                   </a>
@@ -275,20 +315,28 @@ const BirdPopupContent = memo(({ birds }) => {
   );
 });
 
+// Set display name for debugging purposes
+BirdPopupContent.displayName = 'BirdPopupContent';
+
 // Component for popup interaction handling
 const PopupInteractionHandler = () => {
   const map = useMap();
   
   useEffect(() => {
     const handlePopupOpen = () => {
+      debug.debug('Popup opened, temporarily disabling map drag');
       if (map.dragging) {
         map.dragging.disable();
-        setTimeout(() => map.dragging.enable(), 300);
+        setTimeout(() => {
+          map.dragging.enable();
+          debug.debug('Map drag re-enabled');
+        }, 300);
       }
     };
 
     map.on('popupopen', handlePopupOpen);
     return () => {
+      debug.debug('Cleaning up popup interaction handler');
       map.off('popupopen', handlePopupOpen);
     };
   }, [map]);
@@ -301,9 +349,15 @@ const BirdMarker = memo(({ location, icon }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   
   const eventHandlers = useCallback({
-    popupopen: () => setIsPopupOpen(true),
-    popupclose: () => setIsPopupOpen(false),
-  }, []);
+    popupopen: () => {
+      debug.debug('Opening popup for location:', location.lat, location.lng);
+      setIsPopupOpen(true);
+    },
+    popupclose: () => {
+      debug.debug('Closing popup for location:', location.lat, location.lng);
+      setIsPopupOpen(false);
+    },
+  }, [location.lat, location.lng]);
 
   return (
     <Marker 
@@ -318,15 +372,21 @@ const BirdMarker = memo(({ location, icon }) => {
   );
 });
 
+BirdMarker.displayName = 'BirdMarker';
+
 const FadeNotification = () => {
   const [visible, setVisible] = useState(true);
   
   useEffect(() => {
     const timer = setTimeout(() => {
+      debug.debug('Fading out notification');
       setVisible(false);
-    }, 8000); // Fade out after 5 seconds
+    }, 8000);
     
-    return () => clearTimeout(timer);
+    return () => {
+      debug.debug('Cleaning up notification timer');
+      clearTimeout(timer);
+    };
   }, []);
   
   if (!visible) return null;
@@ -358,15 +418,17 @@ const FadeNotification = () => {
           }
         `}
       </style>
-      eBird API limits the number records returned for recent bird sightings. You may see sightings change as you pan and increase as you zoom in.
+      eBird API limits the number records returned for recent bird sightings. 
+      You may see sightings change as you pan and increase as you zoom in.
     </div>
   );
 };
+
 // Component to handle map events
 const MapEvents = ({ onMoveEnd, isPopupMoving }) => {
   const map = useMapEvents({
     dragstart: () => {
-      // Close all popups only when user starts dragging
+      debug.debug('Map drag started, closing all popups');
       map.eachLayer((layer) => {
         if (layer.getPopup && layer.getPopup()) {
           layer.closePopup();
@@ -376,6 +438,7 @@ const MapEvents = ({ onMoveEnd, isPopupMoving }) => {
     moveend: () => {
       const center = map.getCenter();
       const zoom = map.getZoom();
+      debug.debug('Map move ended:', { lat: center.lat, lng: center.lng, zoom });
       onMoveEnd(center);
       updateUrlParams({
         lat: center.lat,
@@ -396,7 +459,15 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
+  const distance = R * c;
+  
+  debug.debug('Calculated distance:', { 
+    from: { lat1, lon1 }, 
+    to: { lat2, lon2 }, 
+    distance 
+  });
+  
+  return distance;
 };
 
 const LocationControl = () => {
@@ -404,6 +475,7 @@ const LocationControl = () => {
   const [isLocating, setIsLocating] = useState(false);
   
   const handleLocate = useCallback(() => {
+    debug.debug('Location button clicked');
     setIsLocating(true);
     
     map.locate({
@@ -445,7 +517,7 @@ const LocationControl = () => {
           >
             <path d="M516-120 402-402 120-516v-56l720-268-268 720h-56Zm26-148 162-436-436 162 196 78 78 196Zm-78-196Z"/>
           </svg>
-          `;
+        `;
         
         L.DomEvent.on(button, 'click', function(e) {
           L.DomEvent.stopPropagation(e);
@@ -457,17 +529,23 @@ const LocationControl = () => {
       }
     });
     
-    // Add the custom control to the map
+    debug.debug('Adding location control to map');
     const locateControl = new customControl();
     map.addControl(locateControl);
     
     // Set up event handlers
     const onLocationFound = (e) => {
+      debug.info('User location found:', { 
+        lat: e.latlng.lat, 
+        lng: e.latlng.lng,
+        accuracy: e.accuracy 
+      });
       map.flyTo(e.latlng, 12);
       setIsLocating(false);
     };
     
     const onLocationError = (e) => {
+      debug.error('Location error:', e.message);
       alert('Unable to get your location. Check your Location Services settings.');
       setIsLocating(false);
     };
@@ -475,8 +553,8 @@ const LocationControl = () => {
     map.on('locationfound', onLocationFound);
     map.on('locationerror', onLocationError);
     
-    // Cleanup
     return () => {
+      debug.debug('Cleaning up location control');
       map.removeControl(locateControl);
       map.off('locationfound', onLocationFound);
       map.off('locationerror', onLocationError);
@@ -486,7 +564,10 @@ const LocationControl = () => {
   return null;
 };
 
+LocationControl.displayName = 'LocationControl';
+
 const BirdMap = () => {
+  // State declarations
   const [urlParams, setUrlParams] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [lastFetchLocation, setLastFetchLocation] = useState(null);
@@ -496,14 +577,16 @@ const BirdMap = () => {
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
   const [sightingType, setSightingType] = useState('recent');
-  const [daysBack, setDaysBack] = useState('7');
+  const [back, setBack] = useState('7');
   const [isPopupMoving, setIsPopupMoving] = useState(false);
-  const inputRef = useRef(null);
   const [showNotification, setShowNotification] = useState(true);
+  const inputRef = useRef(null);
 
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchInput.trim() || !mapRef) return;
+
+    debug.debug('Initiating location search for:', searchInput);
 
     if (inputRef.current) {
       inputRef.current.blur();
@@ -524,42 +607,64 @@ const BirdMap = () => {
 
       if (data && data[0]) {
         const { lat, lon } = data[0];
+        debug.info('Location found:', { lat, lon, displayName: data[0].display_name });
         mapRef.flyTo([lat, lon], 12);
         setSearchInput('');
       } else {
+        debug.warn('No location found for search:', searchInput);
         alert('Location not found');
       }
     } catch (error) {
-      console.error('Error searching location:', error);
+      debug.error('Error searching location:', error);
       alert('Error searching location');
     }
   };
 
+  const handleDaysChange = (e) => {
+    const newDays = e.target.value;
+    debug.debug('Changing days back to:', newDays);
+    setBack(newDays);
+    if (mapRef) {
+      updateUrlParams({
+        back: newDays,
+      });
+    }
+  };
+
   const handleCurrentLocation = () => {
-    if (!mapRef || !navigator.geolocation) return;
-    setLocationLoading(true);
+    if (!mapRef || !navigator.geolocation) {
+      debug.warn('Geolocation not available');
+      return;
+    }
+    
+    debug.debug('Requesting current location');
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+        debug.info('Current location found:', { latitude, longitude });
         mapRef.flyTo([latitude, longitude], 12);
-        setTimeout(() => setLocationLoading(false), 1000); // Wait for map movement
       },
       (error) => {
-        console.error('Error getting location:', error);
-        alert('Unable to get your location.  Check your Location Services settings.');
-        setLocationLoading(false);
+        debug.error('Error getting location:', error.message);
+        alert('Unable to get your location. Check your Location Services settings.');
       }
     );
   };
 
   const handleMoveEnd = useCallback((center) => {
     if (!isPopupMoving) {
+      debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
       setMapCenter({ lat: center.lat, lng: center.lng });
     }
   }, [isPopupMoving]);
 
-  const fetchBirdData = async () => {
+  // Show notification only once on initial mount
+  useEffect(() => {
+    debug.debug('Initializing notification state');
+    setShowNotification(true);
+  }, []);
 
+const fetchBirdData = async () => {
     // Calculate current viewport radius
     let currentRadius = 25; // Default radius
     if (mapRef) {
@@ -569,18 +674,23 @@ const BirdMap = () => {
          
       const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
       const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
-         
       currentRadius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
+      
+      debug.debug('Calculated viewport distances:', { 
+        xDistance, 
+        yDistance, 
+        currentRadius 
+      });
     }
 
     // Check if parameters have changed
     const paramsChanged = !lastFetchParams || 
-     lastFetchParams.daysBack !== daysBack || 
-     lastFetchParams.sightingType !== sightingType;
+      lastFetchParams.back !== back || 
+      lastFetchParams.sightingType !== sightingType;
 
     // Check if radius has changed significantly (more than 1 km)
     const radiusChanged = lastFetchParams && 
-    Math.abs(lastFetchParams.radius - currentRadius) > 1;
+      Math.abs(lastFetchParams.radius - currentRadius) > 1;
 
     // Check if we should skip fetching based on distance
     if (!paramsChanged && !radiusChanged && lastFetchLocation) {
@@ -592,8 +702,16 @@ const BirdMap = () => {
       );
       // Calculate sensitivity threshold as 80% of current viewport radius
       const sensitivityThreshold = currentRadius * 0.80;
+      
+      debug.debug('Checking fetch threshold:', {
+        distance,
+        sensitivityThreshold,
+        shouldSkip: distance < sensitivityThreshold
+      });
+      
       if (distance < sensitivityThreshold) {
-       return;
+        debug.debug('Skipping fetch - within threshold');
+        return;
       }
     }
 
@@ -606,18 +724,24 @@ const BirdMap = () => {
       const params = new URLSearchParams({
         lat: lat.toString(),
         lng: lng.toString(),
-        dist: (currentRadius + 1).toFixed(1),
+        dist: (currentRadius + 0.3).toFixed(1),
         type: sightingType,
-        back: daysBack.toString()
+        back: back.toString()
       });
 
+      debug.info('Fetching bird data:', Object.fromEntries(params));
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/birds?${params}`);
   
       if (!response.ok) {
-        throw new Error('Failed to fetch bird sightings');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
+      debug.debug('Received bird data:', { 
+        totalRecords: data.length,
+        validRecords: data.filter(s => s.obsValid === true).length
+      });
+
       const validSightings = data.filter(sighting => sighting.obsValid === true);
       const groupedByLocation = _.groupBy(validSightings, sighting => 
         `${sighting.lat},${sighting.lng}`
@@ -628,6 +752,8 @@ const BirdMap = () => {
         sighting => `${sighting.sciName}_${sighting.comName}`
       ))];
   
+      debug.debug('Processing unique species:', uniqueSpecies.length);
+
       // Fetch photos for all species at once
       let speciesPhotos = {};
       try {
@@ -645,9 +771,10 @@ const BirdMap = () => {
         if (photoResponse.ok) {
           const photoData = await photoResponse.json();
           speciesPhotos = photoData.species;
+          debug.debug('Retrieved photos for species:', Object.keys(speciesPhotos).length);
         }
       } catch (error) {
-        console.error('Error fetching species photos:', error);
+        debug.error('Error fetching species photos:', error);
       }
       
       const processedSightings = Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
@@ -678,60 +805,51 @@ const BirdMap = () => {
         };
       });
       
+      debug.info('Processed sightings:', { 
+        locations: processedSightings.length,
+        totalBirds: processedSightings.reduce((sum, loc) => sum + loc.birds.length, 0)
+      });
+      
       setBirdSightings(processedSightings);
 
       // Store the last location we've fetched for
       setLastFetchLocation({ lat, lng });
-      setLastFetchParams({ daysBack, sightingType, radius: currentRadius });
+      setLastFetchParams({ back, sightingType, radius: currentRadius });
 
     } catch (error) {
-      console.error('Error fetching bird data:', error);
+      debug.error('Error fetching bird data:', error);
       alert('Error fetching bird sightings');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDaysChange = (e) => {
-    const newDays = e.target.value;
-    setDaysBack(newDays);
-    if (mapRef) {
-      updateUrlParams({
-        daysBack: newDays,
-      });
-    }
-  };
-
-;
-  // Show notification only once on initial mount
   useEffect(() => {
-    setShowNotification(true);
-  }, []);
-
-  useEffect(() => {
-    if (!loading && mapCenter && sightingType && daysBack) {
-      //console.log('Fetching with params:', { mapCenter, sightingType, daysBack }); 
+    if (!loading && mapCenter && sightingType && back) {
+      debug.debug('Triggering bird data fetch:', { mapCenter, sightingType, back });
       fetchBirdData();
-   }
-  }, [daysBack, sightingType, mapCenter]);
+    }
+  }, [back, sightingType, mapCenter]);
 
-    // Load URL parameters on component mount
-    useEffect(() => {
-      const loadUrlParams = async () => {
-        try {
-          const params = await getMapParamsFromUrl();
-          setUrlParams(params);
-          setMapCenter({ lat: params.lat, lng: params.lng });
-          setSightingType(params.sightingType);
-          setDaysBack(params.daysBack);
-          // Force a fetch with the new parameters
-          setLastFetchParams(null);
-        } catch (error) {
-          console.error('Error loading URL parameters:', error);
-        }
-      };
-      loadUrlParams();
-    }, []);
+  // Load URL parameters on component mount
+  useEffect(() => {
+    const loadUrlParams = async () => {
+      try {
+        debug.debug('Loading URL parameters');
+        const params = await getMapParamsFromUrl();
+        setUrlParams(params);
+        setMapCenter({ lat: params.lat, lng: params.lng });
+        setSightingType(params.sightingType);
+        setBack(params.back);
+        // Force a fetch with the new parameters
+        setLastFetchParams(null);
+        debug.info('URL parameters loaded:', params);
+      } catch (error) {
+        debug.error('Error loading URL parameters:', error);
+      }
+    };
+    loadUrlParams();
+  }, []);
 
   return (
     <div style={{ 
@@ -745,21 +863,22 @@ const BirdMap = () => {
       <div style={{ 
         padding: '0.5rem', 
         display: 'flex', 
-        flexWrap: 'wrap',  // Added for mobile responsiveness
-        alignItems: 'flex-start', // Changed from center to prevent stretching
+        flexWrap: 'wrap',
+        alignItems: 'flex-start',
         gap: '1rem'
       }}>
         <div style={{ 
           display: 'flex', 
           gap: '0.5rem', 
           alignItems: 'center',
-          flexWrap: 'wrap',  // Added for mobile responsiveness
-          minWidth: '280px'  // Added to ensure proper wrapping
+          flexWrap: 'wrap',
+          minWidth: '280px'
         }}>
           <select
             value={sightingType}
             onChange={(e) => {
               const newType = e.target.value;
+              debug.debug('Changing sighting type to:', newType);
               setSightingType(newType);
               if (mapRef) {
                 updateUrlParams({
@@ -786,11 +905,11 @@ const BirdMap = () => {
             display: 'flex', 
             alignItems: 'center', 
             gap: '0.25rem',
-            whiteSpace: 'nowrap'  // Prevent label from wrapping
+            whiteSpace: 'nowrap'
           }}>
             <span style={{ color: 'black' }}>Last</span>
             <select
-              value={daysBack}
+              value={back}
               onChange={handleDaysChange}
               style={{
                 padding: '0.5rem',
@@ -816,7 +935,7 @@ const BirdMap = () => {
             display: 'flex', 
             gap: '0.25rem', 
             flex: 1,
-            minWidth: '280px'  // Added to ensure proper wrapping
+            minWidth: '280px'
           }}
         >
           <input
@@ -843,7 +962,7 @@ const BirdMap = () => {
               color: 'white',
               borderRadius: '0.375rem',
               cursor: 'pointer',
-              whiteSpace: 'nowrap'  // Prevent text wrapping
+              whiteSpace: 'nowrap'
             }}
           >
             Go
@@ -852,7 +971,7 @@ const BirdMap = () => {
       </div>
       
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {!urlParams && (
+        {!urlParams ? (
           <div style={{
             height: '100%',
             width: '100%',
@@ -864,8 +983,7 @@ const BirdMap = () => {
           }}>
             Loading map...
           </div>
-        )}
-        {urlParams && (
+        ) : (
           <MapContainer
             updateWhenZooming={false}
             updateWhenIdle={true}
@@ -897,64 +1015,64 @@ const BirdMap = () => {
             ))}
             {showNotification && <FadeNotification />}
             {loading && (
-    <div 
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 1000,
-        touchAction: 'none',
-        pointerEvents: 'all',
-        userSelect: 'none',
-        WebkitTouchCallout: 'none',
-        WebkitUserSelect: 'none',
-        MozUserSelect: 'none',
-        msUserSelect: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}
-      onTouchStart={(e) => e.preventDefault()}
-      onTouchMove={(e) => e.preventDefault()}
-      onTouchEnd={(e) => e.preventDefault()}
-      onClick={(e) => e.preventDefault()}
-    >
-      <div style={{
-        width: '40px',
-        height: '40px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(253, 112, 20, 0.8)',
-        borderRadius: '50%',
-        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.7)'
-      }}>
-        <svg 
-          width="24" 
-          height="24" 
-          viewBox="0 0 24 24"
-          style={{
-            animation: 'spin 1s linear infinite',
-            color: '#ffffff'
-          }}
-        >
-          <style>
-            {`
-              @keyframes spin {
-                to { transform: rotate(360deg); }
-              }
-            `}
-          </style>
-          <path
-            fill="currentColor"
-            d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"
-          />
-        </svg>
-      </div>
-    </div>
-  )}
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 1000,
+                  touchAction: 'none',
+                  pointerEvents: 'all',
+                  userSelect: 'none',
+                  WebkitTouchCallout: 'none',
+                  WebkitUserSelect: 'none',
+                  MozUserSelect: 'none',
+                  msUserSelect: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                onTouchStart={(e) => e.preventDefault()}
+                onTouchMove={(e) => e.preventDefault()}
+                onTouchEnd={(e) => e.preventDefault()}
+                onClick={(e) => e.preventDefault()}
+              >
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'rgba(253, 112, 20, 0.8)',
+                  borderRadius: '50%',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.7)'
+                }}>
+                  <svg 
+                    width="24" 
+                    height="24" 
+                    viewBox="0 0 24 24"
+                    style={{
+                      animation: 'spin 1s linear infinite',
+                      color: '#ffffff'
+                    }}
+                  >
+                    <style>
+                      {`
+                        @keyframes spin {
+                          to { transform: rotate(360deg); }
+                        }
+                      `}
+                    </style>
+                    <path
+                      fill="currentColor"
+                      d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"
+                    />
+                  </svg>
+                </div>
+              </div>
+            )}
           </MapContainer>
         )}
       </div>

@@ -14,84 +14,113 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Project: rare-birds
- * Description: Map for eBird records of rare bird sightings
+ * Project: birds-sightings-map
+ * Description: Map for eBird records of bird sightings
  * 
  * Dependencies:
  * - OpenStreetMap data © OpenStreetMap contributors (ODbL)
  * - Leaflet © 2010-2024 Vladimir Agafonkin (BSD-2-Clause)
  * - eBird data provided by Cornell Lab of Ornithology
+ * - Photos provided by BirdWeather
  */
 
+require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+const { debug } = require('./utils/debug');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-require('dotenv').config();
-//console.log('API Key loaded:', process.env.EBIRD_API_KEY ? 'Yes' : 'No');
 
+// Initialize Express app
 const app = express();
+const port = process.env.PORT || 3000;
 
-// Enable CORS for development
+// Verify environment on startup
+debug.info('Server initializing with config:', {
+  apiKey: process.env.EBIRD_API_KEY ? 'Present' : 'Missing',
+  origins: process.env.ALLOWED_ORIGINS,
+  port: port
+});
+
+// CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS.split(',');
+debug.debug('Configuring CORS with origins:', allowedOrigins);
+
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS.split(','),
+  origin: allowedOrigins,
   methods: ['GET'],
   credentials: true
 }));
 
-// Serve static files from the React app build directory
+// Static file serving
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
-// Bird sightings endpoint
-app.get('/api/birds', async (req, res) => {
-  const { lat, lng, dist, type = 'recent', back = '7' } = req.query;
+/**
+ * Fetch bird sightings from eBird API
+ * @param {Object} query Request query parameters
+ * @returns {Promise<Object>} Bird sighting data
+ */
+const fetchBirdData = async (query) => {
+  const { lat, lng, dist, type = 'recent', back = '7' } = query;
+  const baseUrl = 'https://api.ebird.org/v2/data/obs/geo';
+  const endpoint = type === 'rare' ? 'recent/notable' : 'recent';
+  const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}`;
   
- // console.log('Received request for lat:', lat, 'lng:', lng);
+  debug.debug('Constructing eBird request:', {
+    endpoint,
+    coordinates: { lat, lng },
+    distance: dist,
+    lookback: back
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      'x-ebirdapitoken': process.env.EBIRD_API_KEY
+    }
+  });
+
+  debug.info('eBird API response status:', response.status);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    debug.error('eBird API error:', errorText);
+    throw new Error('eBird API request failed');
+  }
+
+  const responseText = await response.text();
+  debug.debug('eBird raw response:', responseText);
   
   try {
-    const baseUrl = 'https://api.ebird.org/v2/data/obs/geo';
-    const endpoint = type === 'rare' ? 'recent/notable' : 'recent';
-    const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}`;
- //   console.log('Fetching from eBird URL:', url);
-
-    const response = await fetch(
-      url,
-      {
-        headers: {
-          'x-ebirdapitoken': process.env.EBIRD_API_KEY
-        }
-      }
-    );
-    
-//    console.log('eBird API response status:', response.status);
-    const responseText = await response.text();
-//    console.log('eBird response:', responseText);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('eBird API error:', errorText);
-      throw new Error('eBird API request failed');
-    }
-    
-   // const data = await response.json();
     const data = JSON.parse(responseText);
-    console.log(`Number of bird records returned: ${data.length}`);
+    debug.info('Successfully parsed bird records:', data.length);
+    return data;
+  } catch (error) {
+    debug.error('Failed to parse eBird response:', error);
+    throw new Error('Invalid response format from eBird API');
+  }
+};
+
+// API Routes
+app.get('/api/birds', async (req, res) => {
+  debug.info('Received bird sighting request:', req.query);
+  
+  try {
+    const data = await fetchBirdData(req.query);
     res.json(data);
   } catch (error) {
-    console.error('Error fetching bird data:', error.message);
-    if (error.response) {
-      console.error('Response:', await error.response.text());
-    }
+    debug.error('Error handling bird request:', error.message);
     res.status(500).json({ error: 'Failed to fetch bird data' });
   }
 });
 
-// Handle React routing, return all requests to React app
+// Handle React routing
 app.get('*', (req, res) => {
+  debug.debug('Serving React app for path:', req.path);
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
-const port = process.env.PORT || 3000;
+// Start server
 app.listen(port, () => {
-  //console.log(`Server running on port ${port}`);
+  debug.info(`Server running on port ${port}`);
+  debug.info('Debug level:', process.env.SERVER_DEBUG_LEVEL);
 });
