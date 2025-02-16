@@ -132,11 +132,10 @@ const updateUrlParams = (params) => {
       const url = new URL(window.location.href);
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined) {
-          let paramKey = key === 'back' ? 'back' : key;
           let paramValue = (key === 'lat' || key === 'lng') 
             ? parseFloat(value.toFixed(6)) 
             : value.toString();
-          url.searchParams.set(paramKey, paramValue);
+          url.searchParams.set(key, paramValue);
         }
       });
       debug.debug('Updating URL params directly:', Object.fromEntries(url.searchParams));
@@ -578,6 +577,7 @@ const BirdMap = () => {
   const [mapRef, setMapRef] = useState(null);
   const [sightingType, setSightingType] = useState('recent');
   const [back, setBack] = useState('7');
+  const [zoom, setZoom] = useState(null);
   const [isPopupMoving, setIsPopupMoving] = useState(false);
   const [showNotification, setShowNotification] = useState(true);
   const inputRef = useRef(null);
@@ -665,23 +665,20 @@ const BirdMap = () => {
   }, []);
 
 const fetchBirdData = async () => {
-    // Calculate current viewport radius
-    let currentRadius = 25; // Default radius
-    if (mapRef) {
-      const bounds = mapRef.getBounds();
-      const ne = bounds.getNorthEast();
-      const sw = bounds.getSouthWest();
+
+  const bounds = mapRef.getBounds();
+  const ne = bounds.getNorthEast();
+  const sw = bounds.getSouthWest();
          
-      const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
-      const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
-      currentRadius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
+  const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
+  const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
+  const currentRadius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
       
-      debug.debug('Calculated viewport distances:', { 
-        xDistance, 
-        yDistance, 
-        currentRadius 
-      });
-    }
+  debug.debug('Calculated viewport distances:', { 
+    xDistance, 
+    yDistance, 
+    currentRadius 
+  });
 
     // Check if parameters have changed
     const paramsChanged = !lastFetchParams || 
@@ -825,11 +822,11 @@ const fetchBirdData = async () => {
   };
 
   useEffect(() => {
-    if (!loading && mapCenter && sightingType && back) {
-      debug.debug('Triggering bird data fetch:', { mapCenter, sightingType, back });
+    if (!loading && mapCenter && sightingType && back && zoom && mapRef) {
+      debug.debug('Triggering bird data fetch:', { mapCenter, sightingType, back, zoom });
       fetchBirdData();
     }
-  }, [back, sightingType, mapCenter]);
+  }, [back, sightingType, mapCenter, zoom]);
 
   // Load URL parameters on component mount
   useEffect(() => {
@@ -841,6 +838,7 @@ const fetchBirdData = async () => {
         setMapCenter({ lat: params.lat, lng: params.lng });
         setSightingType(params.sightingType);
         setBack(params.back);
+        setZoom(params.zoom)
         // Force a fetch with the new parameters
         setLastFetchParams(null);
         debug.info('URL parameters loaded:', params);
@@ -987,8 +985,8 @@ const fetchBirdData = async () => {
           <MapContainer
             updateWhenZooming={false}
             updateWhenIdle={true}
-            center={mapCenter ? [mapCenter.lat, mapCenter.lng] : [36.9741, -122.0308]}
-            zoom={urlParams?.zoom || 12}
+            center={[urlParams.lat, urlParams.lng]}
+            zoom={urlParams.zoom}
             style={{ 
               height: '100%', 
               width: '100%',
