@@ -1,21 +1,29 @@
-# Rare Bird Sightings Map
+# Bird Sightings Map
 
-An interactive web application that displays notable ("rare") bird sightings on a map using data from eBird. Users can explore rare bird observations in different locations, search for specific areas, and view detailed information about bird sightings.
+An interactive web application that displays bird sightings on a map using data from eBird. Users can explore both recent and rare bird observations in different locations, search for specific areas, and view detailed information about bird sightings including photos.
 
 ## Features
 
 - Interactive map interface using React-Leaflet
+- Two viewing modes:
+  - Recent bird sightings
+  - Rare/notable bird sightings
+- Configurable time window (1, 3, 7, 14, or 30 days)
 - Location search functionality using OpenStreetMap's Nominatim service
+- Current location detection
 - Real-time bird sighting data from eBird API
+- Bird photos integration from BirdWeather
 - Clustered markers for multiple bird sightings at the same location
 - Detailed popup information for each sighting including:
   - Species common name
+  - Bird photos (when available)
   - Observation date
   - Links to eBird checklists
 - Automatic data updates when moving to new map areas
 - Mobile-responsive design
 - Express.js backend with eBird API integration
-- Configurable search radius and time window for bird sightings
+- URL parameter support for sharing specific views
+- Configurable search radius based on zoom level
 
 ## Prerequisites
 
@@ -26,8 +34,8 @@ An interactive web application that displays notable ("rare") bird sightings on 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/tomaskom/rare-birds
-cd rare-birds
+git clone https://github.com/tomaskom/bird-sightings
+cd bird-sightings
 ```
 
 2. Install dependencies for both server and client:
@@ -36,34 +44,34 @@ cd rare-birds
 npm install
 
 # Install client dependencies
-npm install client/
+cd client && npm install
 ```
 
-3. Create a `.env` file in the `rare-birds/server` directory and add your eBird API key:
+3. Create a `.env` file in the `bird-sightings/server` directory and add your eBird API key:
 ```
 EBIRD_API_KEY=your_api_key_here
 PORT=3000  # Optional, defaults to 3000
 ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-4. Create a `.env` file in the `rare-birds/client` directory and add the API URL:
+4. Create a `.env` file in the `bird-sightings/client` directory and add the API URL:
 ```
 VITE_API_URL=http://localhost:3000
 ```
 
-5. Start the server from rare-birds server folder:
+5. Start the server from the server folder:
 ```bash
 cd server
 node start
 ```
  
-6. In a separate terminal, start the backend:
+6. In a separate terminal, start the client:
 ```bash
 cd client
 npm run dev
 ```
 
-7. Navigate a browser window to either the "Local" address listed when the client is launched.  "Ctrl-C" kills the server and "q ENTER" kills the client.
+7. Navigate a browser window to the "Local" address listed when the client is launched. Use "Ctrl-C" to stop the server and "q ENTER" to stop the client.
 
 ## Project Structure
 
@@ -87,28 +95,27 @@ npm run dev
 The server.js server provides:
 
 - Static file serving for the React application
-- A proxy endpoint for eBird API requests
+- Proxy endpoints for eBird API requests
 - CORS support for development
 - Error handling and logging
+- Support for both recent and rare bird sightings
+- Configurable time window for sightings
 
 ### API Endpoints
 
 #### GET /api/birds
-Fetches notable bird sightings from eBird API.
+Fetches bird sightings from eBird API.
 
 Parameters:
 - `lat` (required): Latitude of the search center
 - `lng` (required): Longitude of the search center
-
-Configuration:
-- Search radius: 25km
-- Time window: Last 7 days
-- Maximum results: 100 sightings
-- Includes confirmed notable species only
+- `dist` (optional): Search radius in kilometers
+- `type` (optional): Sighting type ('recent' or 'rare')
+- `back` (optional): Number of days to look back
 
 Example request:
 ```bash
-GET /api/birds?lat=36.9741&lng=-122.0308
+GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&type=recent&back=7
 ```
 
 ## Dependencies
@@ -118,6 +125,7 @@ GET /api/birds?lat=36.9741&lng=-122.0308
 - react-leaflet
 - leaflet
 - lodash
+- leaflet.locatecontrol
 
 ### Backend
 - express
@@ -132,13 +140,16 @@ GET /api/birds?lat=36.9741&lng=-122.0308
 - `BirdPopupContent`: Memoized component for displaying detailed sighting information
 - `PopupInteractionHandler`: Handles map interactions when popups are open
 - `MapEvents`: Manages map movement events
+- `LocationControl`: Handles current location detection
+- `FadeNotification`: Displays temporary notifications
 
 ## API Integration
 
-The application integrates with three external APIs:
+The application integrates with four external APIs:
 1. eBird API (via backend proxy) for bird sighting data
 2. OpenStreetMap's Nominatim API for location search
-3. BirdWeather API for thumbnail and photo URLs
+3. BirdWeather API for bird photos
+4. OpenStreetMap for map tiles
 
 ### Data Format
 
@@ -151,9 +162,12 @@ The application expects bird sighting data in the following format:
   birds: [
     {
       comName: string,
+      sciName: string,
       obsDt: string,
       obsValid: boolean,
-      subIds: string[]
+      subIds: string[],
+      thumbnailUrl?: string,
+      fullPhotoUrl?: string
     }
   ]
 }
@@ -163,8 +177,9 @@ The application expects bird sighting data in the following format:
 
 - Memoized components to prevent unnecessary re-renders
 - Clustered markers for locations with multiple sightings
-- Lazy loading of popup content
+- Lazy loading of popup content and photos
 - Debounced map movement handlers
+- Dynamic search radius based on viewport size
 - Optimized marker rendering using React-Leaflet
 - Server-side request logging for debugging
 - Error handling with detailed logging
@@ -176,20 +191,14 @@ The application expects bird sighting data in the following format:
 3. Make your changes
 4. Submit a pull request
 
-## Sample Screenshots
-
-![Single bird at location](showcase/Screenshot1.png)
-![Multiple birds at location](showcase/Screenshot2.png)
-![Button to update search after map has been panned](showcase/Screenshot4.png)
-![Another example](showcase/Screenshot3.png)
-<img src="showcase/Screenshot5.png" width="35%" alt="Mobile screenshot">
-
-
 ## License
 
 GNU General Public License v3.0
+
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
 You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.
 
 ## Acknowledgments
