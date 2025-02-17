@@ -25,201 +25,32 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
-import { MapContainer, TileLayer, useMapEvents, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMapEvents, Marker, Popup } from 'react-leaflet';
 import { debug } from '../utils/debug';
+import {
+  DefaultIcon,
+  MultipleIcon,
+  initializeMapIcons,
+  calculateViewportRadius,
+  shouldFetchNewData,
+  formatCoordinates
+} from '../utils/mapUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
-import { calculateDistance } from '../utils/mapUtils';
+import { fetchBirdPhotos, processBirdSightings, buildApiUrl } from '../utils/dataUtils';
+import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
+import { LocationControl } from '../components/location/LocationControls';
+import { FadeNotification, LoadingOverlay } from '../components/ui/Notifications';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
 import 'leaflet.locatecontrol';
-import _ from 'lodash';
 
-// Marker icon workaround for React-Leaflet
-import L from 'leaflet';
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-
-// Icon for single bird sightings
-const DefaultIcon = L.icon({
-  iconUrl: icon,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41]
-});
-
-// Create a special icon for locations with multiple birds
-const MultipleIcon = L.divIcon({
-  className: 'custom-div-icon',
-  html: `
-    <div style="
-      background-color: #3B82F6; 
-      color: white; 
-      border-radius: 50%; 
-      width: 30px; 
-      height: 30px; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      border: 2px solid white;
-    ">+</div>
-  `,
-  iconSize: [30, 30],
-  iconAnchor: [15, 15]
-});
-
-debug.debug('Initializing map icons');
-L.Marker.prototype.options.icon = DefaultIcon;
-
-// Memoized popup content component
-const BirdPopupContent = memo(({ birds }) => {
-  const [selectedPhoto, setSelectedPhoto] = useState(null);
-  
-  debug.debug('Rendering popup content for birds:', birds.length);
-
-  return (
-    <>
-      {selectedPhoto && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 2000,
-            cursor: 'pointer'
-          }} 
-          onClick={() => {
-            debug.debug('Closing full-size photo view');
-            setSelectedPhoto(null);
-          }}
-        >
-          <img 
-            src={selectedPhoto} 
-            alt="Full size bird" 
-            style={{
-              maxWidth: '90%',
-              maxHeight: '90%',
-              objectFit: 'contain'
-            }}
-          />
-        </div>
-      )}
-      <div style={{ 
-        maxHeight: '225px', 
-        overflowY: 'auto',
-        transform: 'translateZ(0)'
-      }}>
-        <h3 style={{ 
-          fontWeight: 'bold', 
-          marginBottom: '-0.25rem',
-          padding: '0',
-        }}>
-          {birds.length} {birds.length === 1 ? 'Bird' : 'Birds'} at this location
-        </h3>
-        {birds.map((bird, birdIndex) => (
-          <div 
-            key={`${bird.speciesCode}-${birdIndex}`}
-            style={{ 
-              borderBottom: birdIndex < birds.length - 1 ? '1px solid #e2e8f0' : 'none',
-              padding: '0',
-              paddingTop: '0.25rem',
-              paddingBottom: '0.25rem'
-            }}
-          >
-            <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
-            {bird.thumbnailUrl && (
-              <img
-                src={bird.thumbnailUrl}
-                alt={bird.comName}
-                style={{
-                  width: '100px',
-                  height: '75px',
-                  objectFit: 'cover',
-                  cursor: 'pointer',
-                  marginBottom: '0.25rem',
-                  borderRadius: '4px'
-                }}
-                onClick={() => {
-                  debug.debug('Opening full-size photo for:', bird.comName);
-                  setSelectedPhoto(bird.fullPhotoUrl);
-                }}
-              />
-            )}
-            <p style={{ 
-              fontSize: '0.9em', 
-              color: '#4B5563', 
-              margin: '0.25rem' 
-            }}>
-              Last Observed: {new Date(bird.obsDt).toLocaleDateString()}
-            </p>
-            <p style={{ 
-              fontSize: '0.8em', 
-              color: '#6B7280', 
-              wordBreak: 'break-all' 
-            }}>
-              Checklists: {bird.subIds.map((subId, index) => (
-                <React.Fragment key={subId}>
-                  <a 
-                    href={`https://ebird.org/checklist/${subId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ 
-                      color: '#3B82F6', 
-                      textDecoration: 'underline' 
-                    }}
-                  >
-                    {subId}
-                  </a>
-                  {index < bird.subIds.length - 1 ? ', ' : ''}
-                </React.Fragment>
-              ))}
-            </p>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-});
-
-// Set display name for debugging purposes
-BirdPopupContent.displayName = 'BirdPopupContent';
-
-// Component for popup interaction handling
-const PopupInteractionHandler = () => {
-  const map = useMap();
-  
-  useEffect(() => {
-    const handlePopupOpen = () => {
-      debug.debug('Popup opened, temporarily disabling map drag');
-      if (map.dragging) {
-        map.dragging.disable();
-        setTimeout(() => {
-          map.dragging.enable();
-          debug.debug('Map drag re-enabled');
-        }, 300);
-      }
-    };
-
-    map.on('popupopen', handlePopupOpen);
-    return () => {
-      debug.debug('Cleaning up popup interaction handler');
-      map.off('popupopen', handlePopupOpen);
-    };
-  }, [map]);
-
-  return null;
-};
+// Initialize default map icons
+initializeMapIcons();
 
 // Optimized marker with popup handling
 const BirdMarker = memo(({ location, icon }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  
+
   const eventHandlers = useCallback({
     popupopen: () => {
       debug.debug('Opening popup for location:', location.lat, location.lng);
@@ -232,7 +63,7 @@ const BirdMarker = memo(({ location, icon }) => {
   }, [location.lat, location.lng]);
 
   return (
-    <Marker 
+    <Marker
       position={[location.lat, location.lng]}
       icon={icon}
       eventHandlers={eventHandlers}
@@ -246,58 +77,8 @@ const BirdMarker = memo(({ location, icon }) => {
 
 BirdMarker.displayName = 'BirdMarker';
 
-const FadeNotification = () => {
-  const [visible, setVisible] = useState(true);
-  
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      debug.debug('Fading out notification');
-      setVisible(false);
-    }, 8000);
-    
-    return () => {
-      debug.debug('Cleaning up notification timer');
-      clearTimeout(timer);
-    };
-  }, []);
-  
-  if (!visible) return null;
-  
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        bottom: '20px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        color: 'white',
-        padding: '12px 20px',
-        borderRadius: '8px',
-        zIndex: 1000,
-        maxWidth: '80%',
-        textAlign: 'center',
-        animation: 'fadeInOut 8s ease-in-out forwards',
-      }}
-    >
-      <style>
-        {`
-          @keyframes fadeInOut {
-            0% { opacity: 0; }
-            10% { opacity: 1; }
-            80% { opacity: 1; }
-            100% { opacity: 0; }
-          }
-        `}
-      </style>
-      eBird API limits the number records returned for bird sightings. 
-      You may see sightings change as you pan and the number increase as you zoom in.
-    </div>
-  );
-};
-
 // Component to handle map events
-const MapEvents = ({ onMoveEnd, isPopupMoving }) => {
+const MapEvents = ({ onMoveEnd }) => {
   const map = useMapEvents({
     dragstart: () => {
       debug.debug('Map drag started, closing all popups');
@@ -321,103 +102,6 @@ const MapEvents = ({ onMoveEnd, isPopupMoving }) => {
   });
   return null;
 };
-
-const LocationControl = () => {
-  const map = useMap();
-  const [isLocating, setIsLocating] = useState(false);
-  
-  const handleLocate = useCallback(() => {
-    debug.debug('Location button clicked');
-    setIsLocating(true);
-    
-    map.locate({
-      setView: false,
-      enableHighAccuracy: true
-    });
-  }, [map]);
-
-  useEffect(() => {
-    // Create custom control
-    const customControl = L.Control.extend({
-      options: {
-        position: 'topright'
-      },
-      
-      onAdd: function() {
-        const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-        const button = L.DomUtil.create('a', 'leaflet-control-locate', container);
-        
-        // Style the button
-        button.style.width = '34px';
-        button.style.height = '34px';
-        button.style.cursor = 'pointer';
-        button.style.display = 'flex';
-        button.style.alignItems = 'center';
-        button.style.justifyContent = 'center';
-        button.style.color = 'white';
-        button.style.backgroundColor = isLocating ? '#FD8F47' : '#FD7014';
-        button.title = 'Show current location';
-        
-        // Add location icon
-        button.innerHTML = `
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            height="20" 
-            width="20" 
-            viewBox="0 -960 960 960" 
-            fill="white"
-          >
-            <path d="M516-120 402-402 120-516v-56l720-268-268 720h-56Zm26-148 162-436-436 162 196 78 78 196Zm-78-196Z"/>
-          </svg>
-        `;
-        
-        L.DomEvent.on(button, 'click', function(e) {
-          L.DomEvent.stopPropagation(e);
-          L.DomEvent.preventDefault(e);
-          handleLocate();
-        });
-        
-        return container;
-      }
-    });
-    
-    debug.debug('Adding location control to map');
-    const locateControl = new customControl();
-    map.addControl(locateControl);
-    
-    // Set up event handlers
-    const onLocationFound = (e) => {
-      debug.info('User location found:', { 
-        lat: e.latlng.lat, 
-        lng: e.latlng.lng,
-        accuracy: e.accuracy 
-      });
-      map.flyTo(e.latlng, 12);
-      setIsLocating(false);
-    };
-    
-    const onLocationError = (e) => {
-      debug.error('Location error:', e.message);
-      alert('Unable to get your location. Check your Location Services settings.');
-      setIsLocating(false);
-    };
-    
-    map.on('locationfound', onLocationFound);
-    map.on('locationerror', onLocationError);
-    
-    return () => {
-      debug.debug('Cleaning up location control');
-      map.removeControl(locateControl);
-      map.off('locationfound', onLocationFound);
-      map.off('locationerror', onLocationError);
-    };
-  }, [map, handleLocate, isLocating]);
-  
-  return null;
-};
-
-LocationControl.displayName = 'LocationControl';
-
 const BirdMap = () => {
   // State declarations
   const [urlParams, setUrlParams] = useState(null);
@@ -431,7 +115,6 @@ const BirdMap = () => {
   const [sightingType, setSightingType] = useState('recent');
   const [back, setBack] = useState('7');
   const [zoom, setZoom] = useState(null);
-  const [isPopupMoving, setIsPopupMoving] = useState(false);
   const [showNotification, setShowNotification] = useState(true);
   const inputRef = useRef(null);
 
@@ -472,7 +155,6 @@ const BirdMap = () => {
       alert('Error searching location');
     }
   };
-
   const handleDaysChange = (e) => {
     const newDays = e.target.value;
     debug.debug('Changing days back to:', newDays);
@@ -484,185 +166,58 @@ const BirdMap = () => {
     }
   };
 
-  const handleCurrentLocation = () => {
-    if (!mapRef || !navigator.geolocation) {
-      debug.warn('Geolocation not available');
-      return;
-    }
-    
-    debug.debug('Requesting current location');
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        debug.info('Current location found:', { latitude, longitude });
-        mapRef.flyTo([latitude, longitude], 12);
-      },
-      (error) => {
-        debug.error('Error getting location:', error.message);
-        alert('Unable to get your location. Check your Location Services settings.');
-      }
-    );
-  };
-
   const handleMoveEnd = useCallback((center) => {
-    if (!isPopupMoving) {
-      debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
-      setMapCenter({ lat: center.lat, lng: center.lng });
-    }
-  }, [isPopupMoving]);
-
-  // Show notification only once on initial mount
-  useEffect(() => {
-    debug.debug('Initializing notification state');
-    setShowNotification(true);
+    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
+    setMapCenter({ lat: center.lat, lng: center.lng });
   }, []);
+  const fetchBirdData = async () => {
+    const currentRadius = calculateViewportRadius(mapRef.getBounds());
+    const currentParams = { back, sightingType, radius: currentRadius };
 
-const fetchBirdData = async () => {
-
-  const bounds = mapRef.getBounds();
-  const ne = bounds.getNorthEast();
-  const sw = bounds.getSouthWest();
-         
-  const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
-  const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
-  const currentRadius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
-      
-  debug.debug('Calculated viewport distances:', { 
-    xDistance, 
-    yDistance, 
-    currentRadius 
-  });
-
-    // Check if parameters have changed
-    const paramsChanged = !lastFetchParams || 
-      lastFetchParams.back !== back || 
-      lastFetchParams.sightingType !== sightingType;
-
-    // Check if radius has changed significantly (more than 1 km)
-    const radiusChanged = lastFetchParams && 
-      Math.abs(lastFetchParams.radius - currentRadius) > 1;
-
-    // Check if we should skip fetching based on distance
-    if (!paramsChanged && !radiusChanged && lastFetchLocation) {
-      const distance = calculateDistance(
-        lastFetchLocation.lat,
-        lastFetchLocation.lng,
-        mapCenter.lat,
-        mapCenter.lng
-      );
-      // Calculate sensitivity threshold as 80% of current viewport radius
-      const sensitivityThreshold = currentRadius * 0.80;
-      
-      debug.debug('Checking fetch threshold:', {
-        distance,
-        sensitivityThreshold,
-        shouldSkip: distance < sensitivityThreshold
-      });
-      
-      if (distance < sensitivityThreshold) {
-        debug.debug('Skipping fetch - within threshold');
-        return;
-      }
+    if (!shouldFetchNewData(
+      lastFetchParams,
+      currentParams,
+      lastFetchLocation,
+      mapCenter
+    )) {
+      debug.debug('Skipping fetch - within threshold');
+      return;
     }
 
     setLoading(true);
     try {
-      const lat = Number(mapCenter.lat.toFixed(4));
-      const lng = Number(mapCenter.lng.toFixed(4));   
-
-      // Construct the API URL based on sighting type
-      const params = new URLSearchParams({
-        lat: lat.toString(),
-        lng: lng.toString(),
-        dist: (currentRadius + 0.3).toFixed(1),
+      const { lat, lng } = formatCoordinates(mapCenter.lat, mapCenter.lng);
+      const apiUrl = buildApiUrl({
+        lat,
+        lng,
+        radius: currentRadius,
         type: sightingType,
-        back: back.toString()
+        back
       });
 
-      debug.info('Fetching bird data:', Object.fromEntries(params));
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/birds?${params}`);
-  
+      debug.info('Fetching bird data:', {
+        lat,
+        lng,
+        radius: currentRadius,
+        type: sightingType,
+        back
+      });
+
+      const response = await fetch(apiUrl);
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      debug.debug('Received bird data:', { 
-        totalRecords: data.length,
-        validRecords: data.filter(s => s.obsValid === true).length
-      });
+      const uniqueSpecies = [...new Set(data
+        .filter(sighting => sighting.obsValid === true)
+        .map(sighting => `${sighting.sciName}_${sighting.comName}`))];
 
-      const validSightings = data.filter(sighting => sighting.obsValid === true);
-      const groupedByLocation = _.groupBy(validSightings, sighting => 
-        `${sighting.lat},${sighting.lng}`
-      );
-  
-      // Get unique species for photo lookup
-      const uniqueSpecies = [...new Set(validSightings.map(
-        sighting => `${sighting.sciName}_${sighting.comName}`
-      ))];
-  
-      debug.debug('Processing unique species:', uniqueSpecies.length);
+      const speciesPhotos = await fetchBirdPhotos(uniqueSpecies);
+      const processedSightings = processBirdSightings(data, speciesPhotos);
 
-      // Fetch photos for all species at once
-      let speciesPhotos = {};
-      try {
-        const photoResponse = await fetch('https://app.birdweather.com/api/v1/species/lookup', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            species: uniqueSpecies,
-            fields: ['imageUrl', 'thumbnailUrl']
-          })
-        });
-        
-        if (photoResponse.ok) {
-          const photoData = await photoResponse.json();
-          speciesPhotos = photoData.species;
-          debug.debug('Retrieved photos for species:', Object.keys(speciesPhotos).length);
-        }
-      } catch (error) {
-        debug.error('Error fetching species photos:', error);
-      }
-      
-      const processedSightings = Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
-        const [lat, lng] = locationKey.split(',').map(Number);
-        const birdsBySpecies = _.groupBy(sightings, 'comName');
-        
-        const birds = Object.entries(birdsBySpecies).map(([comName, speciesSightings]) => {
-          const baseData = {
-            ...speciesSightings[0],
-            subIds: speciesSightings.map(s => s.subId)
-          };
-  
-          // Add photo URLs if available
-          const speciesKey = `${baseData.sciName}_${baseData.comName}`;
-          const photoData = speciesPhotos[speciesKey];
-          if (photoData) {
-            baseData.thumbnailUrl = photoData.thumbnailUrl;
-            baseData.fullPhotoUrl = photoData.imageUrl;
-          }
-  
-          return baseData;
-        });
-        
-        return {
-          lat,
-          lng,
-          birds
-        };
-      });
-      
-      debug.info('Processed sightings:', { 
-        locations: processedSightings.length,
-        totalBirds: processedSightings.reduce((sum, loc) => sum + loc.birds.length, 0)
-      });
-      
       setBirdSightings(processedSightings);
-
-      // Store the last location we've fetched for
       setLastFetchLocation({ lat, lng });
       setLastFetchParams({ back, sightingType, radius: currentRadius });
 
@@ -673,28 +228,18 @@ const fetchBirdData = async () => {
       setLoading(false);
     }
   };
-
   useEffect(() => {
-    debug.debug('Fetch effect running with:', { 
-         loading, 
-         mapCenter, 
-         sightingType, 
-         back, 
-         zoom,
-         hasMapRef: !!mapRef 
+    debug.debug('Fetch effect running with:', {
+      loading,
+      mapCenter,
+      sightingType,
+      back,
+      zoom,
+      hasMapRef: !!mapRef
     });
     if (!loading && mapCenter && sightingType && back && zoom && mapRef) {
-      debug.debug('Triggering bird data fetch:', { mapCenter, sightingType, back, zoom });
+      debug.debug('Triggering bird data fetch');
       fetchBirdData();
-    } else {
-      debug.debug('Not fetching because:', {
-          loading,
-          hasMapCenter: !!mapCenter,
-          hasSightingType: !!sightingType,
-          hasBack: !!back,
-          hasZoom: !!zoom,
-          hasMapRef: !!mapRef
-      });
     }
   }, [back, sightingType, mapCenter, zoom, mapRef]);
 
@@ -708,8 +253,7 @@ const fetchBirdData = async () => {
         setMapCenter({ lat: params.lat, lng: params.lng });
         setSightingType(params.sightingType);
         setBack(params.back);
-        setZoom(params.zoom)
-        // Force a fetch with the new parameters
+        setZoom(params.zoom);
         setLastFetchParams(null);
         debug.info('URL parameters loaded:', params);
       } catch (error) {
@@ -719,25 +263,31 @@ const fetchBirdData = async () => {
     loadUrlParams();
   }, []);
 
+  // Show notification only once on initial mount
+  useEffect(() => {
+    debug.debug('Initializing notification state');
+    setShowNotification(true);
+  }, []);
+
   return (
-    <div style={{ 
-      flex: 1, 
-      display: 'flex', 
-      flexDirection: 'column', 
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
       minHeight: 0,
       width: '100%',
       backgroundColor: '#DAD9D9'
     }}>
-      <div style={{ 
-        padding: '0.5rem', 
-        display: 'flex', 
+      <div style={{
+        padding: '0.5rem',
+        display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'flex-start',
         gap: '1rem'
       }}>
-        <div style={{ 
-          display: 'flex', 
-          gap: '0.5rem', 
+        <div style={{
+          display: 'flex',
+          gap: '0.5rem',
           alignItems: 'center',
           flexWrap: 'wrap',
           minWidth: '280px'
@@ -762,16 +312,16 @@ const fetchBirdData = async () => {
               color: 'white',
               borderRadius: '0.375rem',
               cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '1rem'  
+              fontSize: '1rem'
             }}
           >
             <option value="recent">Recent Sightings</option>
             <option value="rare">Rare Bird Sightings</option>
           </select>
-  
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
             gap: '0.25rem',
             whiteSpace: 'nowrap'
           }}>
@@ -796,12 +346,12 @@ const fetchBirdData = async () => {
             <span style={{ color: 'black' }}>days</span>
           </div>
         </div>
-  
-        <form 
+
+        <form
           onSubmit={handleSearch}
-          style={{ 
-            display: 'flex', 
-            gap: '0.25rem', 
+          style={{
+            display: 'flex',
+            gap: '0.25rem',
             flex: 1,
             minWidth: '280px'
           }}
@@ -819,7 +369,7 @@ const fetchBirdData = async () => {
               flex: 1,
               backgroundColor: 'white',
               color: 'black',
-              fontSize: '1rem'  
+              fontSize: '1rem'
             }}
           />
           <button
@@ -837,7 +387,7 @@ const fetchBirdData = async () => {
           </button>
         </form>
       </div>
-      
+
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         {!urlParams ? (
           <div style={{
@@ -857,8 +407,8 @@ const fetchBirdData = async () => {
             updateWhenIdle={true}
             center={[urlParams.lat, urlParams.lng]}
             zoom={urlParams.zoom}
-            style={{ 
-              height: '100%', 
+            style={{
+              height: '100%',
               width: '100%',
               borderRadius: '0.375rem',
               position: 'relative'
@@ -866,13 +416,13 @@ const fetchBirdData = async () => {
             ref={(ref) => {
               debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
               setMapRef(ref);
-            }} 
+            }}
           >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <MapEvents 
+            <MapEvents
               onMoveEnd={handleMoveEnd}
             />
             <PopupInteractionHandler />
@@ -885,65 +435,7 @@ const fetchBirdData = async () => {
               />
             ))}
             {showNotification && <FadeNotification />}
-            {loading && (
-              <div 
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  zIndex: 1000,
-                  touchAction: 'none',
-                  pointerEvents: 'all',
-                  userSelect: 'none',
-                  WebkitTouchCallout: 'none',
-                  WebkitUserSelect: 'none',
-                  MozUserSelect: 'none',
-                  msUserSelect: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onTouchStart={(e) => e.preventDefault()}
-                onTouchMove={(e) => e.preventDefault()}
-                onTouchEnd={(e) => e.preventDefault()}
-                onClick={(e) => e.preventDefault()}
-              >
-                <div style={{
-                  width: '40px',
-                  height: '40px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: 'rgba(253, 112, 20, 0.8)',
-                  borderRadius: '50%',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.7)'
-                }}>
-                  <svg 
-                    width="24" 
-                    height="24" 
-                    viewBox="0 0 24 24"
-                    style={{
-                      animation: 'spin 1s linear infinite',
-                      color: '#ffffff'
-                    }}
-                  >
-                    <style>
-                      {`
-                        @keyframes spin {
-                          to { transform: rotate(360deg); }
-                        }
-                      `}
-                    </style>
-                    <path
-                      fill="currentColor"
-                      d="M12,4a8,8,0,0,1,7.89,6.7A1.53,1.53,0,0,0,21.38,12h0a1.5,1.5,0,0,0,1.48-1.75,11,11,0,0,0-21.72,0A1.5,1.5,0,0,0,2.62,12h0a1.53,1.53,0,0,0,1.49-1.3A8,8,0,0,1,12,4Z"
-                    />
-                  </svg>
-                </div>
-              </div>
-            )}
+            {loading && <LoadingOverlay />}
           </MapContainer>
         )}
       </div>

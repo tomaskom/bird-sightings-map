@@ -15,13 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  * Project: bird-sightings-map
- * Description: Map for eBird records of bird sightings
+ * Description: UI notification components for map interactions
  * 
- * Dependencies:
- * - OpenStreetMap data © OpenStreetMap contributors (ODbL)
- * - Leaflet © 2010-2024 Vladimir Agafonkin (BSD-2-Clause)
- * - eBird data provided by Cornell Lab of Ornithology
- * - Photos provided by BirdWeather
+ * Dependencies: same as BirdMap.jsx
  */
 
 import { debug } from './debug';

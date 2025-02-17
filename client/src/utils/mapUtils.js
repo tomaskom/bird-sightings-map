@@ -15,24 +15,119 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  * Project: bird-sightings-map
- * Description: Map for eBird records of bird sightings
+ * Description: UI notification components for map interactions
  * 
- * Dependencies:
- * - OpenStreetMap data © OpenStreetMap contributors (ODbL)
- * - Leaflet © 2010-2024 Vladimir Agafonkin (BSD-2-Clause)
- * - eBird data provided by Cornell Lab of Ornithology
- * - Photos provided by BirdWeather
+ * Dependencies: same as BirdMap.jsx
  */
+import L from 'leaflet';
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 import { debug } from './debug';
 
-/**
- * Calculate distance between two geographic coordinates
- * @param {number} lat1 - Latitude of first point
- * @param {number} lon1 - Longitude of first point
- * @param {number} lat2 - Latitude of second point
- * @param {number} lon2 - Longitude of second point
- * @returns {number} Distance in kilometers
- */
+// Icon for single bird sightings
+export const DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41]
+});
+
+// Create a special icon for locations with multiple birds
+export const MultipleIcon = L.divIcon({
+  className: 'custom-div-icon',
+  html: `
+    <div style="
+      background-color: #3B82F6; 
+      color: white; 
+      border-radius: 50%; 
+      width: 30px; 
+      height: 30px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      border: 2px solid white;
+    ">+</div>
+  `,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15]
+});
+
+// Initialize map icons
+export const initializeMapIcons = () => {
+  debug.debug('Initializing map icons');
+  L.Marker.prototype.options.icon = DefaultIcon;
+};
+
+// Calculate viewport distances and radius
+export const calculateViewportRadius = (bounds) => {
+  const ne = bounds.getNorthEast();
+  const sw = bounds.getSouthWest();
+         
+  const xDistance = calculateDistance(ne.lat, ne.lng, ne.lat, sw.lng);
+  const yDistance = calculateDistance(ne.lat, ne.lng, sw.lat, ne.lng);
+  const currentRadius = Math.min(Math.max(xDistance, yDistance) / 2, 25);
+      
+  debug.debug('Calculated viewport distances:', { 
+    xDistance, 
+    yDistance, 
+    currentRadius 
+  });
+
+  return currentRadius;
+};
+
+// Check if we should fetch new data based on movement and parameters
+export const shouldFetchNewData = (
+  lastFetchParams,
+  currentParams,
+  lastFetchLocation,
+  currentLocation
+) => {
+  // Check if parameters have changed
+  const paramsChanged = !lastFetchParams || 
+    lastFetchParams.back !== currentParams.back || 
+    lastFetchParams.sightingType !== currentParams.sightingType;
+
+  // Check if radius has changed significantly (more than 1 km)
+  const radiusChanged = lastFetchParams && 
+    Math.abs(lastFetchParams.radius - currentParams.radius) > 1;
+
+  // If basic params changed, we should fetch
+  if (paramsChanged || radiusChanged) {
+    return true;
+  }
+
+  // Check if we should skip fetching based on distance
+  if (lastFetchLocation) {
+    const distance = calculateDistance(
+      lastFetchLocation.lat,
+      lastFetchLocation.lng,
+      currentLocation.lat,
+      currentLocation.lng
+    );
+    // Calculate sensitivity threshold as 80% of current viewport radius
+    const sensitivityThreshold = currentParams.radius * 0.80;
+    
+    debug.debug('Checking fetch threshold:', {
+      distance,
+      sensitivityThreshold,
+      shouldSkip: distance < sensitivityThreshold
+    });
+    
+    return distance >= sensitivityThreshold;
+  }
+
+  return true;
+};
+
+// Format coordinates to fixed precision
+export const formatCoordinates = (lat, lng) => ({
+  lat: Number(lat.toFixed(4)),
+  lng: Number(lng.toFixed(4))
+});
+
+
+// Calculate distance between two geographic coordinates
 export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Earth's radius in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
