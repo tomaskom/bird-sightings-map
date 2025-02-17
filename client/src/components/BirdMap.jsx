@@ -843,7 +843,7 @@ const fetchBirdData = async () => {
           hasMapRef: !!mapRef
       });
     }
-  }, [back, sightingType, mapCenter, zoom]);
+  }, [back, sightingType, mapCenter, zoom, mapRef]);
 
   // Load URL parameters on component mount
   useEffect(() => {
@@ -1011,7 +1011,7 @@ const fetchBirdData = async () => {
               position: 'relative'
             }}
             ref={(ref) => {
-              debug.debug('MapContainer ref callback:', { hasRef: !!ref });
+              debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
               setMapRef(ref);
             }} 
           >
