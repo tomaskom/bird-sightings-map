@@ -52,11 +52,13 @@ cd client && npm install
 EBIRD_API_KEY=your_api_key_here
 PORT=3000  # Optional, defaults to 3000
 ALLOWED_ORIGINS=http://localhost:5173
+SERVER_DEBUG_LEVEL=1
 ```
 
 4. Create a `.env` file in the `bird-sightings/client` directory and add the API URL:
 ```
 VITE_API_URL=http://localhost:3000
+VITE_DEBUG_LEVEL=1
 ```
 
 5. Start the server from the server folder:
@@ -76,20 +78,32 @@ npm run dev
 ## Project Structure
 
 ```
-├── client/                 # Frontend
+├── client/                     # Frontend
 │   ├── src/
 │   │   ├── components/
-│   │   │   └── BirdMap.jsx
+│   │   │   ├── BirdMap.jsx    # Main map component
+│   │   │   ├── popups/        # Popup-related components
+│   │   │   │   └── BirdPopups.jsx
+│   │   │   ├── location/      # Location-related components
+│   │   │   │   └── LocationControls.jsx
+│   │   │   └── ui/           # UI components
+│   │   │       └── Notifications.jsx
+│   │   ├── utils/
+│   │   │   ├── mapUtils.js    # Map-related utilities
+│   │   │   ├── urlUtils.js    # URL parameter handling
+│   │   │   ├── dataUtils.js   # Data fetching and processing
+│   │   │   └── debug.js       # Client debug logging utilities
 │   │   └── ...
-│   ├── .env                # Client environment variables
+│   ├── .env                    # Client environment variables
 │   └── ...
-├── server/                 # Backend
+├── server/                     # Backend
 │   ├── server.js
-│   ├── .env                # Server environment variables
+│   ├── .env                    # Server environment variables
+│   ├── utils/
+│   │   └── debug.js            # Server debug logging utilities
 │   └── ...
 └── ...
 ```
-
 ## Server Implementation
 
 The server.js server provides:
@@ -135,13 +149,31 @@ GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&type=recent&back=7
 
 ## Component Structure
 
-- `BirdMap`: Main component that handles the map interface and data fetching
-- `BirdMarker`: Optimized marker component for displaying bird sighting locations
-- `BirdPopupContent`: Memoized component for displaying detailed sighting information
-- `PopupInteractionHandler`: Handles map interactions when popups are open
-- `MapEvents`: Manages map movement events
-- `LocationControl`: Handles current location detection
-- `FadeNotification`: Displays temporary notifications
+### Main Components
+- `BirdMap`: Core component handling map interface and state management
+- `BirdMarker`: Optimized marker component for bird sighting locations
+
+### Popup Components
+- `BirdPopups.jsx`:
+  - `BirdPopupContent`: Memoized component for sighting information display
+  - `PopupInteractionHandler`: Manages map interactions during popup display
+  - Includes photo modal and observation details components
+
+### Location Components
+- `LocationControls.jsx`:
+  - `LocationControl`: Handles location detection and map navigation
+  - Custom control button implementation
+
+### UI Components
+- `Notifications.jsx`:
+  - `FadeNotification`: Temporary notification display
+  - `LoadingOverlay`: Loading state indicator
+
+### Utility Modules
+- `mapUtils.js`: Map functionality helpers (icons, calculations, etc.)
+- `dataUtils.js`: Data fetching and processing utilities
+- `urlUtils.js`: URL parameter management
+- `debug.js`: Debugging and logging utilities
 
 ## API Integration
 
