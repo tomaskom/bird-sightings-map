@@ -26,7 +26,9 @@
 
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Marker, Popup, useMap } from 'react-leaflet';
-import { debug } from '../../utils/debug';
+import { debug } from '../utils/debug';
+import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
+import { calculateDistance } from '../utils/mapUtils';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
 import 'leaflet.locatecontrol';
@@ -36,135 +38,6 @@ import _ from 'lodash';
 import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-const getMapParamsFromUrl = () => {
-  return new Promise((resolve) => {
-    // Check if we're in an iframe
-    const isInIframe = window !== window.parent;
-
-    // If not in iframe, parse URL directly
-    if (!isInIframe) {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        debug.debug('Parsing URL parameters directly:', Object.fromEntries(params));
-        resolve({
-          lat: parseFloat(params.get('lat')) || 36.9741,
-          lng: parseFloat(params.get('lng')) || -122.0308,
-          zoom: parseInt(params.get('zoom')) || 12,
-          back: params.get('back') || '7',
-          sightingType: params.get('type') || 'recent'
-        });
-      } catch(error) {
-        debug.error('Error parsing URL parameters:', error);
-        resolve({
-          lat: 36.9741,
-          lng: -122.0308,
-          zoom: 12,
-          back: '7',
-          sightingType: 'recent'
-        });
-      }
-      return;
-    }
-
-    let isResolved = false;
-    // Handler for receiving message from parent
-    const handleMessage = (event) => {
-      debug.debug('Received message from parent:', event.origin, event.data);
-      if (event.origin === 'https://www.michellestuff.com') {
-        window.removeEventListener('message', handleMessage);
-        if (isResolved) return;
-        isResolved = true;
-        try {
-          const params = new URLSearchParams(event.data);
-          debug.debug('Parsed iframe params:', Object.fromEntries(params));
-          resolve({
-            lat: parseFloat(params.get('lat')) || 36.9741,
-            lng: parseFloat(params.get('lng')) || -122.0308,
-            zoom: parseInt(params.get('zoom')) || 12,
-            back: params.get('back') || '7',
-            sightingType: params.get('type') || 'recent'
-          });
-        } catch(error) {
-          debug.error('Error parsing URL parameters from iframe:', error);
-          resolve({
-            lat: 36.9741,
-            lng: -122.0308,
-            zoom: 12,
-            back: '7',
-            sightingType: 'recent'
-          });
-        }
-      }
-    };
-
-    // Listen for response from parent
-    window.addEventListener('message', handleMessage);
-
-    // Request URL params from parent
-    debug.debug('Sending getUrlParams message to parent');
-    window.parent.postMessage('getUrlParams', '*');
-
-    // Timeout after 500ms and use defaults
-    setTimeout(() => {
-      if (isResolved) return;
-      isResolved = true;
-      debug.debug('Timeout reached, using defaults');
-      window.removeEventListener('message', handleMessage);
-      resolve({
-        lat: 36.9741,
-        lng: -122.0308,
-        zoom: 12,
-        back: '7',
-        sightingType: 'recent'
-      });
-    }, 500);
-  });
-};
-
-const updateUrlParams = (params) => {
-  try {
-    // Check if we're in an iframe
-    const isInIframe = window !== window.parent;
-
-    if (!isInIframe) {
-      // If not in iframe, update URL directly
-      const url = new URL(window.location.href);
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          let paramValue = (key === 'lat' || key === 'lng') 
-            ? parseFloat(value.toFixed(6)) 
-            : value.toString();
-          url.searchParams.set(key, paramValue);
-        }
-      });
-      debug.debug('Updating URL params directly:', Object.fromEntries(url.searchParams));
-      window.history.pushState({ path: url.href }, '', url.toString());
-      return;
-    }
-
-    // Format parameters
-    const formattedParams = {};
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        if (key === 'lat' || key === 'lng') {
-          formattedParams[key] = parseFloat(value.toFixed(6));
-        } else {
-          formattedParams[key] = value;
-        }
-      }
-    });
-    
-    // Send message to parent
-    debug.debug('Sending parameters to parent:', formattedParams);
-    window.parent.postMessage({
-      type: 'updateUrlParams',
-      params: formattedParams
-    }, 'https://www.michellestuff.com');
-  } catch (error) {
-    debug.error('Error sending parameters to parent:', error);
-  }
-};
 
 
 // Icon for single bird sightings
@@ -417,8 +290,8 @@ const FadeNotification = () => {
           }
         `}
       </style>
-      eBird API limits the number records returned for recent bird sightings. 
-      You may see sightings change as you pan and increase as you zoom in.
+      eBird API limits the number records returned for bird sightings. 
+      You may see sightings change as you pan and the number increase as you zoom in.
     </div>
   );
 };
@@ -447,26 +320,6 @@ const MapEvents = ({ onMoveEnd, isPopupMoving }) => {
     }
   });
   return null;
-};
-
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  const distance = R * c;
-  
-  debug.debug('Calculated distance:', { 
-    from: { lat1, lon1 }, 
-    to: { lat2, lon2 }, 
-    distance 
-  });
-  
-  return distance;
 };
 
 const LocationControl = () => {
