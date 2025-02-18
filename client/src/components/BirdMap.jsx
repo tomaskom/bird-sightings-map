@@ -26,6 +26,9 @@
 
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Marker, Popup } from 'react-leaflet';
+import { MAP_CONTROL_STYLES } from '../styles/controls';
+import { LAYOUT_STYLES } from '../styles/layout';
+import { COLORS } from '../styles/colors';
 import { debug } from '../utils/debug';
 import {
   DefaultIcon,
@@ -270,177 +273,113 @@ const BirdMap = () => {
   }, []);
 
   return (
-    <div style={{
-      flex: 1,
-      display: 'flex',
-      flexDirection: 'column',
-      minHeight: 0,
-      width: '100%',
-      backgroundColor: '#DAD9D9'
-    }}>
-      <div style={{
-        padding: '0.5rem',
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'flex-start',
-        gap: '1rem'
-      }}>
-        <div style={{
-          display: 'flex',
-          gap: '0.5rem',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          minWidth: '280px'
-        }}>
-          <select
-            value={sightingType}
-            onChange={(e) => {
-              const newType = e.target.value;
-              debug.debug('Changing sighting type to:', newType);
-              setSightingType(newType);
-              if (mapRef) {
-                updateUrlParams({
-                  type: newType
-                });
-              }
-              setLastFetchParams(null);
-            }}
-            disabled={loading}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: loading ? '#FD8F47' : '#FD7014',
-              color: 'white',
-              borderRadius: '0.375rem',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '1rem'
-            }}
-          >
-            <option value="recent">Recent Sightings</option>
-            <option value="rare">Rare Bird Sightings</option>
-          </select>
-
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-            whiteSpace: 'nowrap'
-          }}>
-            <span style={{ color: 'black' }}>Last</span>
+    <div style={LAYOUT_STYLES.container}>
+      <div style={LAYOUT_STYLES.controlsWrapper}>
+          <div style={LAYOUT_STYLES.controlGroup}>
             <select
-              value={back}
-              onChange={handleDaysChange}
+              value={sightingType}
+              onChange={(e) => {
+                const newType = e.target.value;
+                debug.debug('Changing sighting type to:', newType);
+                setSightingType(newType);
+                if (mapRef) {
+                  updateUrlParams({
+                    type: newType
+                  });
+                }
+                setLastFetchParams(null);
+              }}
+              disabled={loading}
               style={{
-                padding: '0.5rem',
-                border: '1px solid #e2e8f0',
-                borderRadius: '0.375rem',
-                backgroundColor: 'white',
-                color: 'black'
+                ...MAP_CONTROL_STYLES.select,
+                ...(loading && MAP_CONTROL_STYLES.selectDisabled)
               }}
             >
-              <option value="1">1</option>
-              <option value="3">3</option>
-              <option value="7">7</option>
-              <option value="14">14</option>
-              <option value="30">30</option>
+              <option value="recent">Recent Sightings</option>
+              <option value="rare">Rare Bird Sightings</option>
             </select>
-            <span style={{ color: 'black' }}>days</span>
+
+            <div style={LAYOUT_STYLES.pullDown}>
+              <span style={{ color: COLORS.text.primary }}>Last</span>
+              <select
+                value={back}
+                onChange={handleDaysChange}
+                style={MAP_CONTROL_STYLES.input}
+              >
+                <option value="1">1</option>
+                <option value="3">3</option>
+                <option value="7">7</option>
+                <option value="14">14</option>
+                <option value="30">30</option>
+              </select>
+              <span style={{ color: COLORS.text.primary }}>days</span>
+            </div>
           </div>
+
+          <form
+            onSubmit={handleSearch}
+            style={LAYOUT_STYLES.searchForm}
+          >
+            <input
+              ref={inputRef}
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Location..."
+              style={{
+                ...MAP_CONTROL_STYLES.input,
+                flex: 1
+              }}
+            />
+            <button
+              type="submit"
+              style={MAP_CONTROL_STYLES.button}
+            >
+              Go
+            </button>
+          </form>
         </div>
 
-        <form
-          onSubmit={handleSearch}
-          style={{
-            display: 'flex',
-            gap: '0.25rem',
-            flex: 1,
-            minWidth: '280px'
-          }}
-        >
-          <input
-            ref={inputRef}
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Location..."
-            style={{
-              padding: '0.5rem',
-              border: '1px solid #e2e8f0',
-              borderRadius: '0.375rem',
-              flex: 1,
-              backgroundColor: 'white',
-              color: 'black',
-              fontSize: '1rem'
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#FD7014',
-              color: 'white',
-              borderRadius: '0.375rem',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            Go
-          </button>
-        </form>
-      </div>
-
-      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {!urlParams ? (
-          <div style={{
-            height: '100%',
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#DAD9D9',
-            borderRadius: '0.375rem'
-          }}>
-            Loading map...
-          </div>
-        ) : (
-          <MapContainer
-            updateWhenZooming={false}
-            updateWhenIdle={true}
-            center={[urlParams.lat, urlParams.lng]}
-            zoom={urlParams.zoom}
-            style={{
-              height: '100%',
-              width: '100%',
-              borderRadius: '0.375rem',
-              position: 'relative'
-            }}
-            ref={(ref) => {
-              debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
-              setMapRef(ref);
-            }}
-          >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            <MapEvents
-              onMoveEnd={handleMoveEnd}
-            />
-            <PopupInteractionHandler />
-            <LocationControl />
-            {birdSightings.map((location, index) => (
-              <BirdMarker
-                key={`${location.lat}-${location.lng}-${index}`}
-                location={location}
-                icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+          {!urlParams ? (
+            <div style={LAYOUT_STYLES.loadingContainer}>
+              Loading map...
+            </div>
+          ) : (
+            <MapContainer
+              updateWhenZooming={false}
+              updateWhenIdle={true}
+              center={[urlParams.lat, urlParams.lng]}
+              zoom={urlParams.zoom}
+              style={LAYOUT_STYLES.map}
+              ref={(ref) => {
+                debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
+                setMapRef(ref);
+              }}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-            ))}
-            {showNotification && <FadeNotification />}
-            {loading && <LoadingOverlay />}
-          </MapContainer>
-        )}
+              <MapEvents
+                onMoveEnd={handleMoveEnd}
+              />
+              <PopupInteractionHandler />
+              <LocationControl />
+              {birdSightings.map((location, index) => (
+                <BirdMarker
+                  key={`${location.lat}-${location.lng}-${index}`}
+                  location={location}
+                  icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+                />
+              ))}
+              {showNotification && <FadeNotification />}
+              {loading && <LoadingOverlay />}
+            </MapContainer>
+          )}
+        </div>
       </div>
-    </div>
-  );
+      );
 };
 
-export default BirdMap;
+      export default BirdMap;

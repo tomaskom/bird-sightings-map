@@ -20,31 +20,30 @@
  * Dependencies: same as BirdMap.jsx
  */
 import React, { useState, memo, useEffect } from 'react';
-import { Popup, useMap } from 'react-leaflet';
+import { useMap } from 'react-leaflet';
 import { debug } from '../../utils/debug';
+import { LAYOUT_STYLES, POPUP_LAYOUT_STYLES } from '../../styles/layout';
+import { TYPOGRAPHY_STYLES } from '../../styles/typography';
+import { COLORS } from '../../styles/colors';
 
 // Memoized popup content component
 export const BirdPopupContent = memo(({ birds }) => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  
+
   debug.debug('Rendering popup content for birds:', birds.length);
 
   return (
     <>
       {selectedPhoto && (
-        <PhotoModal 
-          photoUrl={selectedPhoto} 
-          onClose={() => setSelectedPhoto(null)} 
+        <PhotoModal
+          photoUrl={selectedPhoto}
+          onClose={() => setSelectedPhoto(null)}
         />
       )}
-      <div style={{ 
-        maxHeight: '225px', 
-        overflowY: 'auto',
-        transform: 'translateZ(0)'
-      }}>
+      <div style={POPUP_LAYOUT_STYLES.contentContainer}>
         <PopupHeader birdCount={birds.length} />
         {birds.map((bird, birdIndex) => (
-          <BirdEntry 
+          <BirdEntry
             key={`${bird.speciesCode}-${birdIndex}`}
             bird={bird}
             isLast={birdIndex === birds.length - 1}
@@ -57,56 +56,33 @@ export const BirdPopupContent = memo(({ birds }) => {
 });
 
 const PhotoModal = ({ photoUrl, onClose }) => (
-  <div 
-    style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 2000,
-      cursor: 'pointer'
-    }} 
+  <div style={POPUP_LAYOUT_STYLES.photoModal}
     onClick={onClose}
   >
-    <img 
-      src={photoUrl} 
-      alt="Full size bird" 
-      style={{
-        maxWidth: '90%',
-        maxHeight: '90%',
-        objectFit: 'contain'
-      }}
+    <img
+      src={photoUrl}
+      alt="Full size bird"
+      style={POPUP_LAYOUT_STYLES.modalImage}
     />
   </div>
 );
 
 const PopupHeader = ({ birdCount }) => (
-  <h3 style={{ 
-    fontWeight: 'bold', 
-    marginBottom: '-0.25rem',
-    padding: '0',
-  }}>
+  <h3 style={TYPOGRAPHY_STYLES.popupHeader}>
     {birdCount} {birdCount === 1 ? 'Bird' : 'Birds'} at this location
   </h3>
 );
 
 const BirdEntry = ({ bird, isLast, onPhotoClick }) => (
-  <div 
-    style={{ 
-      borderBottom: isLast ? 'none' : '1px solid #e2e8f0',
-      padding: '0',
-      paddingTop: '0.25rem',
-      paddingBottom: '0.25rem'
+  <div
+    style={{
+      borderBottom: isLast ? 'none' : '1px solid' + COLORS.border,
+      ...POPUP_LAYOUT_STYLES.birdEntry
     }}
   >
-    <h4 style={{ fontWeight: 'bold' }}>{bird.comName}</h4>
+    <h4 style={TYPOGRAPHY_STYLES.birdName}>{bird.comName}</h4>
     {bird.thumbnailUrl && (
-      <BirdThumbnail 
+      <BirdThumbnail
         bird={bird}
         onClick={onPhotoClick}
       />
@@ -119,42 +95,24 @@ const BirdThumbnail = ({ bird, onClick }) => (
   <img
     src={bird.thumbnailUrl}
     alt={bird.comName}
-    style={{
-      width: '100px',
-      height: '75px',
-      objectFit: 'cover',
-      cursor: 'pointer',
-      marginBottom: '0.25rem',
-      borderRadius: '4px'
-    }}
+    style={LAYOUT_STYLES.thumbnail}
     onClick={onClick}
   />
 );
 
 const ObservationDetails = ({ bird }) => (
   <>
-    <p style={{ 
-      fontSize: '0.9em', 
-      color: '#4B5563', 
-      margin: '0.25rem' 
-    }}>
+    <p style={TYPOGRAPHY_STYLES.observationDate}>
       Last Observed: {new Date(bird.obsDt).toLocaleDateString()}
     </p>
-    <p style={{ 
-      fontSize: '0.8em', 
-      color: '#6B7280', 
-      wordBreak: 'break-all' 
-    }}>
+    <p style={TYPOGRAPHY_STYLES.checklistText}>
       Checklists: {bird.subIds.map((subId, index) => (
         <React.Fragment key={subId}>
-          <a 
+          <a
             href={`https://ebird.org/checklist/${subId}`}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ 
-              color: '#3B82F6', 
-              textDecoration: 'underline' 
-            }}
+            style={TYPOGRAPHY_STYLES.checklistLink}
           >
             {subId}
           </a>
@@ -168,7 +126,7 @@ const ObservationDetails = ({ bird }) => (
 // Handler for popup interactions
 export const PopupInteractionHandler = () => {
   const map = useMap();
-  
+
   useEffect(() => {
     const handlePopupOpen = () => {
       debug.debug('Popup opened, temporarily disabling map drag');
