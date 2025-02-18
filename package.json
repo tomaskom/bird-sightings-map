@@ -1,23 +1,25 @@
 {
-  "name": "rare-birds",
-  "version": "1.0.0",
-  "description": "Full stack application for mapping records of eBird rare bird sightings",
+  "name": "bird-sightings-map",
+  "version": "1.1.0",
+  "description": "Full stack application for mapping records of eBird bird sightings",
   "author": "Michelle Tomasko <tomaskom@gmail.com>",
   "copyright": "Copyright (c) 2025 Michelle Tomasko",
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tomaskom/rare-birds"
+    "url": "https://github.com/tomaskom/bird-sightings-map"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "bugs": {
-    "url": "https://github.com/tomaskom/rare-birds/issues"
+    "url": "https://github.com/tomaskom/bird-sightings-map/issues"
   },
   "keywords": [
-    "bird-watching",
-    "rare-birds",
+    "bird watching",
+    "rare birds",
+    "birding",
+    "ebird",
     "node",
     "react",
     "vite"

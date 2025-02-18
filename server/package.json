@@ -1,7 +1,7 @@
 {
-  "name": "rare-birds-server",
-  "version": "1.0.0",
-  "description": "Backend server for Rare Birds application - handles API requests and data management",
+  "name": "bird-sightings-map-server",
+  "version": "1.1.0",
+  "description": "Backend server for Bird Sightings Map application - handles API requests and data management",
   "main": "server.js",
   "author": "Michelle Tomasko <tomaskom@gmail.com>",
   "license": "GPL-3.0",
@@ -14,7 +14,10 @@
     "express",
     "node",
     "api",
-    "rare-birds",
+    "bird map",
+    "ebird",
+    "birding",
+    "bird watching",
     "backend"
   ],
   "dependencies": {
