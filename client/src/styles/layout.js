@@ -111,7 +111,7 @@ export const POPUP_LAYOUT_STYLES = {
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: COLORS.modal.overlay,
+        backgroundColor: COLORS.modal.background,
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',

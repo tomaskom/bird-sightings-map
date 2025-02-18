@@ -82,18 +82,29 @@ npm run dev
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── BirdMap.jsx    # Main map component
-│   │   │   ├── popups/        # Popup-related components
+│   │   │   ├── popups/        
 │   │   │   │   └── BirdPopups.jsx
-│   │   │   ├── location/      # Location-related components
+│   │   │   ├── location/      
 │   │   │   │   └── LocationControls.jsx
-│   │   │   └── ui/           # UI components
+│   │   │   └── ui/           
 │   │   │       └── Notifications.jsx
-│   │   ├── utils/
-│   │   │   ├── mapUtils.js    # Map-related utilities
-│   │   │   ├── urlUtils.js    # URL parameter handling
+│   │   ├── styles/            # Styling configurations
+│   │   │   ├── animations.js
+│   │   │   ├── colors.js
+│   │   │   ├── controls.js
+│   │   │   ├── layout.js
+│   │   │   └── typography.js
+│   │   ├── utils/             # Utility functions
 │   │   │   ├── dataUtils.js   # Data fetching and processing
-│   │   │   └── debug.js       # Client debug logging utilities
-│   │   └── ...
+│   │   │   ├── debug.js       # Client debug logging utilities
+│   │   │   ├── mapConstants.js 
+│   │   │   ├── mapUtils.js    
+│   │   │   └── urlUtils.js    # URL parameter handling
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   ├── index.css
+│   │   └── main.jsx
+│   ├── public/                 # Favicons
 │   ├── .env                    # Client environment variables
 │   └── ...
 ├── server/                     # Backend
@@ -174,6 +185,13 @@ GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&type=recent&back=7
 - `dataUtils.js`: Data fetching and processing utilities
 - `urlUtils.js`: URL parameter management
 - `debug.js`: Debugging and logging utilities
+
+### Style Modules
+- `animations.js`: Spinner animation for loading data
+- `colors.js`: Color schemes
+- `controls.js`: Standard styles for controls
+- `layout.js`: Standard stlyes for layout
+- `typography.js`: Standard typography styles for popups
 
 ## API Integration
 
