@@ -1,30 +1,35 @@
 /**
- * Copyright (C) 2025 Michelle Tomasko
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *
- * Project: bird-sightings-map
- * Description: UI notification components for map interactions
- * 
- * Dependencies: same as BirdMap.jsx
- */
+* Copyright (C) 2025 Michelle Tomasko
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*
+* Project: bird-sightings-map
+* Description: Map utility functions for handling markers, icons, viewport
+* calculations, and geographic distance computations.
+*
+* Dependencies: leaflet, debug.js
+*/
+
 import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 import { debug } from './debug';
 
-// Icon for single bird sightings
+/**
+ * Default Leaflet icon configuration for single bird sightings
+ * @type {L.Icon}
+ */
 export const DefaultIcon = L.icon({
   iconUrl: icon,
   shadowUrl: iconShadow,
@@ -32,7 +37,10 @@ export const DefaultIcon = L.icon({
   iconAnchor: [12, 41]
 });
 
-// Create a special icon for locations with multiple birds
+/**
+ * Custom div icon for locations with multiple bird sightings
+ * @type {L.DivIcon}
+ */
 export const MultipleIcon = L.divIcon({
   className: 'custom-div-icon',
   html: `
@@ -52,13 +60,19 @@ export const MultipleIcon = L.divIcon({
   iconAnchor: [15, 15]
 });
 
-// Initialize map icons
+/**
+ * Sets the default marker icon for Leaflet
+ */
 export const initializeMapIcons = () => {
   debug.debug('Initializing map icons');
   L.Marker.prototype.options.icon = DefaultIcon;
 };
 
-// Calculate viewport distances and radius
+/**
+ * Calculates the appropriate radius based on current viewport bounds
+ * @param {L.LatLngBounds} bounds - Current map viewport bounds
+ * @returns {number} Calculated radius in kilometers, capped at 25km
+ */
 export const calculateViewportRadius = (bounds) => {
   const ne = bounds.getNorthEast();
   const sw = bounds.getSouthWest();
@@ -76,28 +90,31 @@ export const calculateViewportRadius = (bounds) => {
   return currentRadius;
 };
 
-// Check if we should fetch new data based on movement and parameters
+/**
+ * Determines if new data should be fetched based on map movement and parameter changes
+ * @param {Object} lastFetchParams - Previous fetch parameters
+ * @param {Object} currentParams - Current fetch parameters
+ * @param {Object} lastFetchLocation - Previous fetch location coordinates
+ * @param {Object} currentLocation - Current location coordinates
+ * @returns {boolean} Whether new data should be fetched
+ */
 export const shouldFetchNewData = (
   lastFetchParams,
   currentParams,
   lastFetchLocation,
   currentLocation
 ) => {
-  // Check if parameters have changed
   const paramsChanged = !lastFetchParams || 
     lastFetchParams.back !== currentParams.back || 
     lastFetchParams.sightingType !== currentParams.sightingType;
 
-  // Check if radius has changed significantly (more than 1 km)
   const radiusChanged = lastFetchParams && 
     Math.abs(lastFetchParams.radius - currentParams.radius) > 1;
 
-  // If basic params changed, we should fetch
   if (paramsChanged || radiusChanged) {
     return true;
   }
 
-  // Check if we should skip fetching based on distance
   if (lastFetchLocation) {
     const distance = calculateDistance(
       lastFetchLocation.lat,
@@ -105,7 +122,6 @@ export const shouldFetchNewData = (
       currentLocation.lat,
       currentLocation.lng
     );
-    // Calculate sensitivity threshold as 80% of current viewport radius
     const sensitivityThreshold = currentParams.radius * 0.80;
     
     debug.debug('Checking fetch threshold:', {
@@ -120,14 +136,25 @@ export const shouldFetchNewData = (
   return true;
 };
 
-// Format coordinates to fixed precision
+/**
+ * Formats coordinates to fixed precision
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {Object} Formatted coordinates with 4 decimal places
+ */
 export const formatCoordinates = (lat, lng) => ({
   lat: Number(lat.toFixed(4)),
   lng: Number(lng.toFixed(4))
 });
 
-
-// Calculate distance between two geographic coordinates
+/**
+ * Calculates the distance between two geographic coordinates using the Haversine formula
+ * @param {number} lat1 - Latitude of first point
+ * @param {number} lon1 - Longitude of first point
+ * @param {number} lat2 - Latitude of second point
+ * @param {number} lon2 - Longitude of second point
+ * @returns {number} Distance in kilometers
+ */
 export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Earth's radius in km
   const dLat = (lat2 - lat1) * Math.PI / 180;

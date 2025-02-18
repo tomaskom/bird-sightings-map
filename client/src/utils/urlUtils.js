@@ -15,7 +15,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  * Project: bird-sightings-map
- * Description: UI notification components for map interactions
+ * Description: Utilities for managing URL parameters in both standalone 
+ * and embedded contexts. Handles parameter parsing, updates, and cross-frame 
+ * communication for map state.
+ * 
+ * Key Features:
+ * - Supports both direct URL manipulation and iframe message passing
+ * - Handles map coordinates, zoom level, time range, and sighting type filters
+ * - Includes fallback mechanisms and timeout handling for iframe communicationDescription: UI notification components for map interactions
  * 
  * Dependencies: same as BirdMap.jsx
  */
@@ -23,15 +30,15 @@
 import { debug } from './debug';
 
 /**
- * Retrieve map parameters from URL
- * @returns {Promise<Object>} Map parameters
+ * Gets map parameters from URL or parent frame
+ * @returns {Promise<Object>} Map parameters (lat, lng, zoom, back, type)
  */
 export const getMapParamsFromUrl = () => {
   return new Promise((resolve) => {
     // Check if we're in an iframe
     const isInIframe = window !== window.parent;
 
-    // Default parameters
+    // Santa Cruz coordinates and default view settings
     const defaultParams = {
       lat: 36.9741,
       lng: -122.0308,
@@ -40,7 +47,7 @@ export const getMapParamsFromUrl = () => {
       sightingType: 'recent'
     };
 
-    // If not in iframe, parse URL directly
+    // Handle standalone mode
     if (!isInIframe) {
       try {
         const params = new URLSearchParams(window.location.search);
@@ -59,10 +66,11 @@ export const getMapParamsFromUrl = () => {
       return;
     }
 
+    // Handle embedded mode with parent frame communication
     let isResolved = false;
-    // Handler for receiving message from parent
     const handleMessage = (event) => {
       debug.debug('Received message from parent:', event.origin, event.data);
+      // Only accept messages from the authorized parent domain
       if (event.origin === 'https://www.michellestuff.com') {
         window.removeEventListener('message', handleMessage);
         if (isResolved) return;
@@ -84,14 +92,11 @@ export const getMapParamsFromUrl = () => {
       }
     };
 
-    // Listen for response from parent
     window.addEventListener('message', handleMessage);
-
-    // Request URL params from parent
     debug.debug('Sending getUrlParams message to parent');
     window.parent.postMessage('getUrlParams', '*');
 
-    // Timeout after 500ms and use defaults
+    // Fallback to defaults if parent frame doesn't respond
     setTimeout(() => {
       if (isResolved) return;
       isResolved = true;
@@ -103,19 +108,19 @@ export const getMapParamsFromUrl = () => {
 };
 
 /**
- * Update URL parameters
- * @param {Object} params - Parameters to update
+ * Updates URL parameters in browser or notifies parent frame
+ * @param {Object} params Parameters to update (lat, lng, zoom, back, type)
  */
 export const updateUrlParams = (params) => {
   try {
-    // Check if we're in an iframe
     const isInIframe = window !== window.parent;
 
     if (!isInIframe) {
-      // If not in iframe, update URL directly
+      // Update URL directly in standalone mode
       const url = new URL(window.location.href);
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined) {
+          // Round coordinates to 6 decimal places for consistency
           let paramValue = (key === 'lat' || key === 'lng') 
             ? parseFloat(value.toFixed(6)) 
             : value.toString();
@@ -127,7 +132,7 @@ export const updateUrlParams = (params) => {
       return;
     }
 
-    // Format parameters
+    // Format and send parameters to parent in embedded mode
     const formattedParams = {};
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) {
@@ -139,7 +144,6 @@ export const updateUrlParams = (params) => {
       }
     });
     
-    // Send message to parent
     debug.debug('Sending parameters to parent:', formattedParams);
     window.parent.postMessage({
       type: 'updateUrlParams',
@@ -151,9 +155,9 @@ export const updateUrlParams = (params) => {
 };
 
 /**
- * Construct search parameters from an object
- * @param {Object} params - Parameters to convert to search string
- * @returns {string} Formatted search parameters
+ * Converts a params object to a URL search string
+ * @param {Object} params Parameters to serialize
+ * @returns {string} URL-encoded parameter string
  */
 export const constructSearchParams = (params) => {
   const searchParams = new URLSearchParams();

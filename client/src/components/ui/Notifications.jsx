@@ -15,9 +15,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  * Project: bird-sightings-map
- * Description: UI notification components for map interactions
+ * Description: React components for displaying loading states and user notifications.
+ * Includes an auto-dismissing notification and an interactive loading overlay.
  * 
- * Dependencies: same as BirdMap.jsx
+ * Dependencies: react, styles/layout, styles/animations, utils/debug
  */
 
 import React, { useState, useEffect } from 'react';
@@ -25,6 +26,11 @@ import { NOTIFICATION_LAYOUT_STYLES } from '../../styles/layout';
 import { ANIMATIONS } from '../../styles/animations';
 import { debug } from '../../utils/debug';
 
+/**
+ * Displays a temporary notification about eBird API limitations
+ * @component
+ * @returns {React.ReactElement|null}
+ */
 export const FadeNotification = () => {
   const [visible, setVisible] = useState(true);
 
@@ -53,6 +59,12 @@ export const FadeNotification = () => {
   );
 };
 
+/**
+ * Displays a fullscreen loading overlay with spinner
+ * Prevents interaction with underlying elements while loading
+ * @component
+ * @returns {React.ReactElement}
+ */
 export const LoadingOverlay = () => (
   <div
     style={NOTIFICATION_LAYOUT_STYLES.loadingOverlay}
