@@ -1,27 +1,34 @@
 /**
- * Copyright (C) 2025 Michelle Tomasko
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *
- * Project: bird-sightings-map
- * Description: UI notification components for map interactions
- * 
- * Dependencies: same as BirdMap.jsx
- */
+* Copyright (C) 2025 Michelle Tomasko
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*
+* Project: bird-sightings-map
+* Description: Data processing utilities for bird sightings, handling API
+* interactions, photo fetching, and location-based data grouping.
+* 
+* Dependencies: lodash, debug.js
+*/
+
 import _ from 'lodash';
 import { debug } from './debug';
 
+/**
+ * Fetches bird photos from the BirdWeather API for given species
+ * @param {string[]} uniqueSpecies - Array of unique species identifiers
+ * @returns {Promise<Object>} Object mapping species to their photo URLs
+ */
 export const fetchBirdPhotos = async (uniqueSpecies) => {
   try {
     const photoResponse = await fetch('https://app.birdweather.com/api/v1/species/lookup', {
@@ -47,6 +54,12 @@ export const fetchBirdPhotos = async (uniqueSpecies) => {
   }
 };
 
+/**
+ * Processes raw bird sightings data and groups it by location
+ * @param {Object[]} sightings - Array of raw bird sighting records
+ * @param {Object} speciesPhotos - Mapping of species to their photo URLs
+ * @returns {Object[]} Array of location objects with grouped bird sightings
+ */
 export const processBirdSightings = (sightings, speciesPhotos) => {
   const validSightings = sightings.filter(sighting => sighting.obsValid === true);
   const groupedByLocation = _.groupBy(validSightings, sighting => 
@@ -88,6 +101,16 @@ export const processBirdSightings = (sightings, speciesPhotos) => {
   });
 };
 
+/**
+ * Builds the API URL for fetching bird sightings
+ * @param {Object} params - Search parameters
+ * @param {number} params.lat - Latitude
+ * @param {number} params.lng - Longitude
+ * @param {number} params.radius - Search radius in kilometers
+ * @param {string} params.type - Type of bird sighting
+ * @param {number} params.back - Number of days to look back
+ * @returns {string} Formatted API URL with query parameters
+ */
 export const buildApiUrl = (params) => {
   const searchParams = new URLSearchParams({
     lat: params.lat.toString(),

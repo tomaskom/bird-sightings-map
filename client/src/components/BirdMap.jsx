@@ -40,6 +40,13 @@ import {
 } from '../utils/mapUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
 import { fetchBirdPhotos, processBirdSightings, buildApiUrl } from '../utils/dataUtils';
+import {
+  MAP_TILE_URL,
+  DAYS_BACK_OPTIONS,
+  SIGHTING_TYPES,
+  DEFAULT_MAP_PARAMS,
+  generateAttribution
+} from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
 import { FadeNotification, LoadingOverlay } from '../components/ui/Notifications';
@@ -50,7 +57,12 @@ import 'leaflet.locatecontrol';
 // Initialize default map icons
 initializeMapIcons();
 
-// Optimized marker with popup handling
+/**
+ * Memoized marker component that displays bird sighting locations
+ * @param {Object} props - Component props
+ * @param {Object} props.location - Location data with coordinates and birds
+ * @param {L.Icon} props.icon - Leaflet icon to display
+ */
 const BirdMarker = memo(({ location, icon }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
 
@@ -80,7 +92,11 @@ const BirdMarker = memo(({ location, icon }) => {
 
 BirdMarker.displayName = 'BirdMarker';
 
-// Component to handle map events
+/**
+ * Component that handles map events and updates
+ * @param {Object} props - Component props
+ * @param {Function} props.onMoveEnd - Callback for map movement end
+ */
 const MapEvents = ({ onMoveEnd }) => {
   const map = useMapEvents({
     dragstart: () => {
@@ -105,6 +121,11 @@ const MapEvents = ({ onMoveEnd }) => {
   });
   return null;
 };
+
+/**
+ * Main map component that displays bird sightings and handles user interactions
+ * Manages state for map location, sightings data, search, and filtering
+ */
 const BirdMap = () => {
   // State declarations
   const [urlParams, setUrlParams] = useState(null);
@@ -115,8 +136,8 @@ const BirdMap = () => {
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
-  const [sightingType, setSightingType] = useState('recent');
-  const [back, setBack] = useState('7');
+  const [sightingType, setSightingType] = useState(DEFAULT_MAP_PARAMS.sightingType);
+  const [back, setBack] = useState(DEFAULT_MAP_PARAMS.back);
   const [zoom, setZoom] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
   const inputRef = useRef(null);
@@ -158,6 +179,7 @@ const BirdMap = () => {
       alert('Error searching location');
     }
   };
+
   const handleDaysChange = (e) => {
     const newDays = e.target.value;
     debug.debug('Changing days back to:', newDays);
@@ -173,6 +195,7 @@ const BirdMap = () => {
     debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
     setMapCenter({ lat: center.lat, lng: center.lng });
   }, []);
+
   const fetchBirdData = async () => {
     const currentRadius = calculateViewportRadius(mapRef.getBounds());
     const currentParams = { back, sightingType, radius: currentRadius };
@@ -231,6 +254,7 @@ const BirdMap = () => {
       setLoading(false);
     }
   };
+
   useEffect(() => {
     debug.debug('Fetch effect running with:', {
       loading,
@@ -275,111 +299,107 @@ const BirdMap = () => {
   return (
     <div style={LAYOUT_STYLES.container}>
       <div style={LAYOUT_STYLES.controlsWrapper}>
-          <div style={LAYOUT_STYLES.controlGroup}>
-            <select
-              value={sightingType}
-              onChange={(e) => {
-                const newType = e.target.value;
-                debug.debug('Changing sighting type to:', newType);
-                setSightingType(newType);
-                if (mapRef) {
-                  updateUrlParams({
-                    type: newType
-                  });
-                }
-                setLastFetchParams(null);
-              }}
-              disabled={loading}
-              style={{
-                ...MAP_CONTROL_STYLES.select,
-                ...(loading && MAP_CONTROL_STYLES.selectDisabled)
-              }}
-            >
-              <option value="recent">Recent Sightings</option>
-              <option value="rare">Rare Bird Sightings</option>
-            </select>
-
-            <div style={LAYOUT_STYLES.pullDown}>
-              <span style={{ color: COLORS.text.primary }}>Last</span>
-              <select
-                value={back}
-                onChange={handleDaysChange}
-                style={MAP_CONTROL_STYLES.input}
-              >
-                <option value="1">1</option>
-                <option value="3">3</option>
-                <option value="7">7</option>
-                <option value="14">14</option>
-                <option value="30">30</option>
-              </select>
-              <span style={{ color: COLORS.text.primary }}>days</span>
-            </div>
-          </div>
-
-          <form
-            onSubmit={handleSearch}
-            style={LAYOUT_STYLES.searchForm}
+        <div style={LAYOUT_STYLES.controlGroup}>
+          <select
+            value={sightingType}
+            onChange={(e) => {
+              const newType = e.target.value;
+              debug.debug('Changing sighting type to:', newType);
+              setSightingType(newType);
+              if (mapRef) {
+                updateUrlParams({
+                  type: newType
+                });
+              }
+              setLastFetchParams(null);
+            }}
+            disabled={loading}
+            style={{
+              ...MAP_CONTROL_STYLES.select,
+              ...(loading && MAP_CONTROL_STYLES.selectDisabled)
+            }}
           >
-            <input
-              ref={inputRef}
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Location..."
-              style={{
-                ...MAP_CONTROL_STYLES.input,
-                flex: 1
-              }}
-            />
-            <button
-              type="submit"
-              style={MAP_CONTROL_STYLES.button}
+            <option value={SIGHTING_TYPES.RECENT}>Recent Sightings</option>
+            <option value={SIGHTING_TYPES.RARE}>Rare Bird Sightings</option>
+          </select>
+
+          <div style={LAYOUT_STYLES.pullDown}>
+            <span style={{ color: COLORS.text.primary }}>Last</span>
+            <select
+              value={back}
+              onChange={handleDaysChange}
+              style={MAP_CONTROL_STYLES.input}
             >
-              Go
-            </button>
-          </form>
+              {DAYS_BACK_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <span style={{ color: COLORS.text.primary }}>days</span>
+          </div>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-          {!urlParams ? (
-            <div style={LAYOUT_STYLES.loadingContainer}>
-              Loading map...
-            </div>
-          ) : (
-            <MapContainer
-              updateWhenZooming={false}
-              updateWhenIdle={true}
-              center={[urlParams.lat, urlParams.lng]}
-              zoom={urlParams.zoom}
-              style={LAYOUT_STYLES.map}
-              ref={(ref) => {
-                debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
-                setMapRef(ref);
-              }}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors | Data: <a href="https://ebird.org" target="_blank" rel="noopener noreferrer">eBird</a> | Photos: <a href="https://birdweather.com" target="_blank" rel="noopener noreferrer">BirdWeather</a> | &copy; <a href="https://michellestuff.com">Michelle Tomasko</a> | Licensed under <a href="https://www.gnu.org/licenses/gpl-3.0.en.html" target="_blank" rel="noopener noreferrer">GPL v3</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <MapEvents
-                onMoveEnd={handleMoveEnd}
-              />
-              <PopupInteractionHandler />
-              <LocationControl />
-              {birdSightings.map((location, index) => (
-                <BirdMarker
-                  key={`${location.lat}-${location.lng}-${index}`}
-                  location={location}
-                  icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
-                />
-              ))}
-              {showNotification && <FadeNotification />}
-              {loading && <LoadingOverlay />}
-            </MapContainer>
-          )}
-        </div>
+        <form
+          onSubmit={handleSearch}
+          style={LAYOUT_STYLES.searchForm}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Location..."
+            style={{
+              ...MAP_CONTROL_STYLES.input,
+              flex: 1
+            }}
+          />
+          <button
+            type="submit"
+            style={MAP_CONTROL_STYLES.button}
+          >
+            Go
+          </button>
+        </form>
       </div>
-      );
+
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        {!urlParams ? (
+          <div style={LAYOUT_STYLES.loadingContainer}>
+            Loading map...
+          </div>
+        ) : (
+          <MapContainer
+            updateWhenZooming={false}
+            updateWhenIdle={true}
+            center={[urlParams.lat, urlParams.lng]}
+            zoom={urlParams.zoom}
+            style={LAYOUT_STYLES.map}
+            ref={(ref) => {
+              debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
+              setMapRef(ref);
+            }}
+          >
+            <TileLayer
+              attribution={generateAttribution()}
+              url={MAP_TILE_URL}
+            />
+            <MapEvents onMoveEnd={handleMoveEnd} />
+            <PopupInteractionHandler />
+            <LocationControl />
+            {birdSightings.map((location, index) => (
+              <BirdMarker
+                key={`${location.lat}-${location.lng}-${index}`}
+                location={location}
+                icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+              />
+            ))}
+            {showNotification && <FadeNotification />}
+            {loading && <LoadingOverlay />}
+          </MapContainer>
+        )}
+      </div>
+    </div>
+  );
 };
 
-      export default BirdMap;
+export default BirdMap;
