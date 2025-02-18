@@ -21,108 +21,54 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { NOTIFICATION_LAYOUT_STYLES } from '../../styles/layout';
+import { ANIMATIONS } from '../../styles/animations';
 import { debug } from '../../utils/debug';
 
 export const FadeNotification = () => {
   const [visible, setVisible] = useState(true);
-  
+
   useEffect(() => {
     const timer = setTimeout(() => {
       debug.debug('Fading out notification');
       setVisible(false);
     }, 8000);
-    
+
     return () => {
       debug.debug('Cleaning up notification timer');
       clearTimeout(timer);
     };
   }, []);
-  
+
   if (!visible) return null;
-  
+
   return (
-    <div
-      style={{
-        position: 'absolute',
-        bottom: '20px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        color: 'white',
-        padding: '12px 20px',
-        borderRadius: '8px',
-        zIndex: 1000,
-        maxWidth: '80%',
-        textAlign: 'center',
-        animation: 'fadeInOut 8s ease-in-out forwards',
-      }}
-    >
+    <div style={NOTIFICATION_LAYOUT_STYLES.fadeNotification}>
       <style>
-        {`
-          @keyframes fadeInOut {
-            0% { opacity: 0; }
-            10% { opacity: 1; }
-            80% { opacity: 1; }
-            100% { opacity: 0; }
-          }
-        `}
+        {ANIMATIONS.fadeInOut}
       </style>
-      eBird API limits the number records returned for bird sightings. 
+      eBird API limits the number records returned for bird sightings.
       You may see sightings change as you pan and the number increase as you zoom in.
     </div>
   );
 };
 
 export const LoadingOverlay = () => (
-  <div 
-    style={{
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      zIndex: 1000,
-      touchAction: 'none',
-      pointerEvents: 'all',
-      userSelect: 'none',
-      WebkitTouchCallout: 'none',
-      WebkitUserSelect: 'none',
-      MozUserSelect: 'none',
-      msUserSelect: 'none',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }}
+  <div
+    style={NOTIFICATION_LAYOUT_STYLES.loadingOverlay}
     onTouchStart={(e) => e.preventDefault()}
     onTouchMove={(e) => e.preventDefault()}
     onTouchEnd={(e) => e.preventDefault()}
     onClick={(e) => e.preventDefault()}
   >
-    <div style={{
-      width: '40px',
-      height: '40px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(253, 112, 20, 0.8)',
-      borderRadius: '50%',
-      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.7)'
-    }}>
-      <svg 
-        width="24" 
-        height="24" 
+    <div style={NOTIFICATION_LAYOUT_STYLES.loadingSpinner}>
+      <svg
+        width="24"
+        height="24"
         viewBox="0 0 24 24"
-        style={{
-          animation: 'spin 1s linear infinite',
-          color: '#ffffff'
-        }}
-      >
+        style={NOTIFICATION_LAYOUT_STYLES.spinnerIcon}>
         <style>
-          {`
-            @keyframes spin {
-              to { transform: rotate(360deg); }
-            }
-          `}
+          {ANIMATIONS.spin}
         </style>
         <path
           fill="currentColor"
