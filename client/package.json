@@ -1,7 +1,7 @@
 {
-  "name": "rare-birds-client",
-  "version": "1.0.0",
-  "description": "React frontend for Rare Birds application - interactive bird sighting map and user interface",
+  "name": "bird-sightings-map-client",
+  "version": "1.1.0",
+  "description": "React frontend for Bird Sightings Map application - interactive bird sighting map and user interface",
   "type": "module",
   "author": "Michelle Tomasko <tomaskom@gmail.com>",
   "license": "GPL-3.0",
@@ -15,7 +15,10 @@
     "react",
     "vite",
     "leaflet",
-    "rare-birds",
+    "rare birds",
+    "birding",
+    "birding map",
+    "ebird",
     "frontend"
   ],
   "dependencies": {
