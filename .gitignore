@@ -20,6 +20,10 @@ server/dist
 dist
 build
 
+# Generated files
+client/src/utils/taxonomyData.ts
+client/src/utils/taxonomyTypes.ts
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
