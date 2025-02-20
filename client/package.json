@@ -6,6 +6,8 @@
   "author": "Michelle Tomasko <tomaskom@gmail.com>",
   "license": "GPL-3.0",
   "scripts": {
+    "build:taxonomy": "node scripts/buildTaxonomy.js",
+    "prebuild": "npm run build:taxonomy",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
@@ -22,6 +24,7 @@
     "frontend"
   ],
   "dependencies": {
+    "csv-parse": "^5.6.0",
     "leaflet": "^1.9.4",
     "leaflet.locatecontrol": "^0.83.1",
     "lodash": "^4.17.21",
