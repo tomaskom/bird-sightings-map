@@ -102,12 +102,49 @@ export const processBirdSightings = (sightings, speciesPhotos) => {
 };
 
 /**
+ * Fetches species list for a specific region from the server
+ * @param {string} regionCode - eBird region code (e.g., "US-CA")
+ * @returns {Promise<Array<TaxonomyEntry>>} List of species for the region
+ */
+export const fetchRegionSpecies = async (regionCode) => {
+  debug.debug('Fetching species for region:', regionCode);
+  
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_API_URL}/api/region-species/${regionCode}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    debug.debug('Received region species data:', {
+      region: regionCode,
+      count: data.length
+    });
+
+    // Transform to taxonomy entry format
+    return data.map(species => ({
+      speciesCode: species.speciesCode,
+      commonName: species.comName,
+      scientificName: species.sciName,
+      category: 'species',
+      taxonOrder: species.taxonOrder || 0
+    }));
+  } catch (error) {
+    debug.error('Error fetching region species:', error);
+    throw error;
+  }
+};
+
+/**
  * Builds the API URL for fetching bird sightings
  * @param {Object} params - Search parameters
  * @param {number} params.lat - Latitude
  * @param {number} params.lng - Longitude
  * @param {number} params.radius - Search radius in kilometers
- * @param {string} params.type - Type of bird sighting
+ * @param {string} params.species - Species code, or 'rare' or 'recent'
  * @param {number} params.back - Number of days to look back
  * @returns {string} Formatted API URL with query parameters
  */
@@ -116,7 +153,7 @@ export const buildApiUrl = (params) => {
     lat: params.lat.toString(),
     lng: params.lng.toString(),
     dist: (params.radius + 0.3).toFixed(1),
-    type: params.type,
+    species: params.species,
     back: params.back.toString()
   });
 

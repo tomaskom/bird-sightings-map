@@ -43,13 +43,15 @@ import { fetchBirdPhotos, processBirdSightings, buildApiUrl } from '../utils/dat
 import {
   MAP_TILE_URL,
   DAYS_BACK_OPTIONS,
-  SIGHTING_TYPES,
+  SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
   generateAttribution
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
 import { FadeNotification, LoadingOverlay } from '../components/ui/Notifications';
+import SpeciesSearch from '../components/ui/SpeciesSearch';
+import { detectRegion } from '../utils/mapUtils';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
 import 'leaflet.locatecontrol';
@@ -125,6 +127,7 @@ const MapEvents = ({ onMoveEnd }) => {
 /**
  * Main map component that displays bird sightings and handles user interactions
  * Manages state for map location, sightings data, search, and filtering
+ * @returns {React.ReactElement} The BirdMap component
  */
 const BirdMap = () => {
   // State declarations
@@ -136,11 +139,39 @@ const BirdMap = () => {
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [mapRef, setMapRef] = useState(null);
-  const [sightingType, setSightingType] = useState(DEFAULT_MAP_PARAMS.sightingType);
+  const [selectedSpecies, setSelectedSpecies] = useState(DEFAULT_MAP_PARAMS.species);
   const [back, setBack] = useState(DEFAULT_MAP_PARAMS.back);
   const [zoom, setZoom] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
   const inputRef = useRef(null);
+  /**
+   * Current geographic region code (e.g. "US-CA")
+   * @type {[string | null, React.Dispatch<React.SetStateAction<string | null>>]}
+   */
+  const [currentRegion, setCurrentRegion] = useState(null);
+
+  /**
+   * Handles selection of a bird species from the search component
+   * @param {Object} selection - The selected species object
+   * @param {string} [selection.type] - Type for special filters (rare/recent)
+   * @param {string} [selection.speciesCode] - Species code for specific birds
+   */
+  const handleSpeciesSelect = useCallback((selection) => {
+    debug.debug('Species selected:', selection);
+    // The selection object contains either a type (for pinned options) 
+    // or a speciesCode (for specific birds)
+    const speciesCode = selection.type || selection.speciesCode;
+    
+    setSelectedSpecies(speciesCode);
+  
+    if (mapRef) {
+      updateUrlParams({
+        species: speciesCode
+      });
+      setLastFetchParams(null); // Force refetch with new species
+    }
+  }, [mapRef]);
+
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -191,14 +222,43 @@ const BirdMap = () => {
     }
   };
 
+  /**
+   * Handles map movement events, updates center position and detects region changes
+   * @param {L.LatLng} center - New center coordinates of the map
+   */
   const handleMoveEnd = useCallback((center) => {
     debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
     setMapCenter({ lat: center.lat, lng: center.lng });
-  }, []);
 
+    /**
+     * Detects and updates the current geographic region based on map center
+     * @async
+     */
+    const detectCurrentRegion = async () => {
+      try {
+        const region = await detectRegion(center);
+        if (region !== currentRegion) {
+          debug.debug('Region changed:', { from: currentRegion, to: region });
+          setCurrentRegion(region);
+        }
+      } catch (error) {
+        debug.error('Error detecting region:', error);
+      }
+    };
+    detectCurrentRegion();
+  }, [currentRegion]);
+
+  /**
+   * Fetches bird sighting data based on current map position and filters
+   * @async
+   */
   const fetchBirdData = async () => {
     const currentRadius = calculateViewportRadius(mapRef.getBounds());
-    const currentParams = { back, sightingType, radius: currentRadius };
+    const currentParams = {
+      back,
+      species: selectedSpecies,
+      radius: currentRadius
+    };
 
     if (!shouldFetchNewData(
       lastFetchParams,
@@ -217,7 +277,7 @@ const BirdMap = () => {
         lat,
         lng,
         radius: currentRadius,
-        type: sightingType,
+        species: selectedSpecies,
         back
       });
 
@@ -225,7 +285,7 @@ const BirdMap = () => {
         lat,
         lng,
         radius: currentRadius,
-        type: sightingType,
+        species: selectedSpecies,
         back
       });
 
@@ -245,7 +305,7 @@ const BirdMap = () => {
 
       setBirdSightings(processedSightings);
       setLastFetchLocation({ lat, lng });
-      setLastFetchParams({ back, sightingType, radius: currentRadius });
+      setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius });
 
     } catch (error) {
       debug.error('Error fetching bird data:', error);
@@ -259,16 +319,16 @@ const BirdMap = () => {
     debug.debug('Fetch effect running with:', {
       loading,
       mapCenter,
-      sightingType,
+      selectedSpecies,
       back,
       zoom,
       hasMapRef: !!mapRef
     });
-    if (!loading && mapCenter && sightingType && back && zoom && mapRef) {
+    if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef) {
       debug.debug('Triggering bird data fetch');
       fetchBirdData();
     }
-  }, [back, sightingType, mapCenter, zoom, mapRef]);
+  }, [back, selectedSpecies, mapCenter, zoom, mapRef]);
 
   // Load URL parameters on component mount
   useEffect(() => {
@@ -278,7 +338,7 @@ const BirdMap = () => {
         const params = await getMapParamsFromUrl();
         setUrlParams(params);
         setMapCenter({ lat: params.lat, lng: params.lng });
-        setSightingType(params.sightingType);
+        setSelectedSpecies(params.species);
         setBack(params.back);
         setZoom(params.zoom);
         setLastFetchParams(null);
@@ -300,28 +360,15 @@ const BirdMap = () => {
     <div style={LAYOUT_STYLES.container}>
       <div style={LAYOUT_STYLES.controlsWrapper}>
         <div style={LAYOUT_STYLES.controlGroup}>
-          <select
-            value={sightingType}
-            onChange={(e) => {
-              const newType = e.target.value;
-              debug.debug('Changing sighting type to:', newType);
-              setSightingType(newType);
-              if (mapRef) {
-                updateUrlParams({
-                  type: newType
-                });
-              }
-              setLastFetchParams(null);
-            }}
+
+          <SpeciesSearch
+            onSpeciesSelect={handleSpeciesSelect}
+            currentRegion={currentRegion}
             disabled={loading}
-            style={{
-              ...MAP_CONTROL_STYLES.select,
-              ...(loading && MAP_CONTROL_STYLES.selectDisabled)
-            }}
-          >
-            <option value={SIGHTING_TYPES.RECENT}>Recent Sightings</option>
-            <option value={SIGHTING_TYPES.RARE}>Rare Bird Sightings</option>
-          </select>
+            initialValue=""
+            allSpeciesCode={SPECIES_CODES.ALL}
+            rareSpeciesCode={SPECIES_CODES.RARE}
+          />
 
           <div style={LAYOUT_STYLES.pullDown}>
             <span style={{ color: COLORS.text.primary }}>Last</span>

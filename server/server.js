@@ -61,13 +61,26 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
  * @returns {Promise<Object>} Bird sighting data
  */
 const fetchBirdData = async (query) => {
-  const { lat, lng, dist, type = 'recent', back = '7' } = query;
+  const { lat, lng, dist, species = 'recent', back = '7' } = query;
   const baseUrl = 'https://api.ebird.org/v2/data/obs/geo';
-  const endpoint = type === 'rare' ? 'recent/notable' : 'recent';
+
+  let endpoint;
+  let speciesParam = '';
+
+  if (species === 'rare') {
+    endpoint = 'recent/notable';
+  } else {
+    endpoint = 'recent';
+    if (species !== 'recent') {
+      endpoint = `recent/${species}`;
+    }
+  }
+
   const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}`;
   
   debug.debug('Constructing eBird request:', {
     endpoint,
+    species,
     coordinates: { lat, lng },
     distance: dist,
     lookback: back
@@ -100,6 +113,48 @@ const fetchBirdData = async (query) => {
   }
 };
 
+/**
+ * Fetch region species list from eBird API
+ * @param {string} regionCode - eBird region code (e.g., "US-CA")
+ * @returns {Promise<Object>} Region species data
+ */
+const fetchRegionSpecies = async (regionCode) => {
+  const baseUrl = 'https://api.ebird.org/v2/product/spplist';
+  const url = `${baseUrl}/${regionCode}`;
+  
+  debug.debug('Constructing region species request:', {
+    endpoint: baseUrl,
+    region: regionCode
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      'x-ebirdapitoken': process.env.EBIRD_API_KEY
+    }
+  });
+
+  debug.info('eBird API response status:', response.status);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    debug.error('eBird API error:', errorText);
+    throw new Error('eBird API request failed');
+  }
+
+  const responseText = await response.text();
+  debug.debug('eBird raw response:', responseText);
+  
+  try {
+    const data = JSON.parse(responseText);
+    debug.info('Successfully parsed species records:', data.length);
+    return data;
+  } catch (error) {
+    debug.error('Failed to parse eBird response:', error);
+    throw new Error('Invalid response format from eBird API');
+  }
+};
+
+
 // API Routes
 app.get('/api/birds', async (req, res) => {
   debug.info('Received bird sighting request:', req.query);
@@ -110,6 +165,20 @@ app.get('/api/birds', async (req, res) => {
   } catch (error) {
     debug.error('Error handling bird request:', error.message);
     res.status(500).json({ error: 'Failed to fetch bird data' });
+  }
+});
+
+
+app.get('/api/region-species/:regionCode', async (req, res) => {
+  const { regionCode } = req.params;
+  debug.info('Received region species request:', regionCode);
+  
+  try {
+    const data = await fetchRegionSpecies(regionCode);
+    res.json(data);
+  } catch (error) {
+    debug.error('Error handling region species request:', error.message);
+    res.status(500).json({ error: 'Failed to fetch region species data' });
   }
 });
 

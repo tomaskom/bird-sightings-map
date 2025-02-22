@@ -43,23 +43,27 @@ export const DAYS_BACK_OPTIONS = [
    * Available sighting types for filtering bird observations
    * @enum {string}
    */
-   export const SIGHTING_TYPES = {
-    RECENT: 'recent',
+   export const SPECIES_CODES = {
+    ALL: 'recent',
     RARE: 'rare'
    };
    
    /**
    * Default parameters for initializing the map view
    * @type {Object}
-   * @property {string} sightingType - Type of sightings to display
+   * @property {string} species - Species code or special filter
    * @property {string} back - Number of days to look back
    * @property {number} zoom - Initial map zoom level
    */
    export const DEFAULT_MAP_PARAMS = {
-    sightingType: SIGHTING_TYPES.RECENT,
+    lat: 36.9741,  // Santa Cruz, CA lat and lng
+    lng: -122.0308,
+    species: SPECIES_CODES.ALL,
     back: "7",
     zoom: 12
    };
+
+   export const REGION_BUFFER_DISTANCE = 25;
 
 /**
 * Configuration object defining attribution links and metadata

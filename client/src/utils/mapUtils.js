@@ -24,6 +24,7 @@
 import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import { REGION_BUFFER_DISTANCE } from './mapconstants';
 import { debug } from './debug';
 
 /**
@@ -173,4 +174,150 @@ export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   });
   
   return distance;
+};
+
+/**
+ * Detects the current eBird region code based on geographic coordinates
+ * @async
+ * @param {L.LatLng} center - Center coordinates to detect region for
+ * @returns {Promise<string>} Region code (e.g. "US-CA" for California)
+ * @throws {Error} If region detection fails
+ */
+export const detectRegion = async (center) => {
+  debug.debug('Detecting region for coordinates:', center);
+  
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?` +
+      `format=json&lat=${center.lat}&lon=${center.lng}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    debug.debug('Reverse geocoding response:', data);
+    
+    // Extract country and state codes
+    const country = data.address?.country_code?.toUpperCase();
+    let state = data.address?.state;
+    
+    // Phase 1: Handle US states only
+    if (country === 'US' && state) {
+      // Convert state name to two-letter code using state mapping
+      const stateCode = getStateCode(state);
+      if (stateCode) {
+        const regionCode = `US-${stateCode}`;
+        debug.info('Detected region:', regionCode);
+        return regionCode;
+      }
+    }
+    
+    throw new Error('Region detection only supports US states in Phase 1');
+  } catch (error) {
+    debug.error('Error detecting region:', error);
+    throw error;
+  }
+};
+
+/**
+ * Determines if a point is near a region boundary for data prefetching
+ * @param {L.LatLng} center - Point to check
+ * @param {string} regionCode - Current region code
+ * @returns {Promise<boolean>} Whether point is within buffer distance of boundary
+ */
+export const isNearRegionBoundary = async (center, regionCode) => {
+  debug.debug('Checking boundary proximity:', { center, regionCode });
+  
+  try {
+    // Get coordinates of points REGION_BUFFER_DISTANCE away in cardinal directions
+    const points = [
+      { lat: center.lat + REGION_BUFFER_DISTANCE, lng: center.lng }, // North
+      { lat: center.lat - REGION_BUFFER_DISTANCE, lng: center.lng }, // South
+      { lat: center.lat, lng: center.lng + REGION_BUFFER_DISTANCE }, // East
+      { lat: center.lat, lng: center.lng - REGION_BUFFER_DISTANCE }  // West
+    ];
+    
+    // Check if any point is in a different region
+    const regions = await Promise.all(
+      points.map(point => detectRegion(point))
+    );
+    
+    const differentRegion = regions.some(r => r !== regionCode);
+    debug.debug('Boundary check result:', { 
+      currentRegion: regionCode, 
+      nearbyRegions: regions,
+      isNearBoundary: differentRegion
+    });
+    
+    return differentRegion;
+  } catch (error) {
+    debug.error('Error checking region boundary:', error);
+    return false;
+  }
+};
+
+/**
+ * Converts a US state name to its two-letter code
+ * @param {string} stateName - Full name of US state
+ * @returns {string|null} Two-letter state code or null if not found
+ * @private
+ */
+const getStateCode = (stateName) => {
+  const stateMap = {
+    'alabama': 'AL',
+    'alaska': 'AK',
+    'arizona': 'AZ',
+    'arkansas': 'AR',
+    'california': 'CA',
+    'colorado': 'CO',
+    'connecticut': 'CT',
+    'delaware': 'DE',
+    'florida': 'FL',
+    'georgia': 'GA',
+    'hawaii': 'HI',
+    'idaho': 'ID',
+    'illinois': 'IL',
+    'indiana': 'IN',
+    'iowa': 'IA',
+    'kansas': 'KS',
+    'kentucky': 'KY',
+    'louisiana': 'LA',
+    'maine': 'ME',
+    'maryland': 'MD',
+    'massachusetts': 'MA',
+    'michigan': 'MI',
+    'minnesota': 'MN',
+    'mississippi': 'MS',
+    'missouri': 'MO',
+    'montana': 'MT',
+    'nebraska': 'NE',
+    'nevada': 'NV',
+    'new hampshire': 'NH',
+    'new jersey': 'NJ',
+    'new mexico': 'NM',
+    'new york': 'NY',
+    'north carolina': 'NC',
+    'north dakota': 'ND',
+    'ohio': 'OH',
+    'oklahoma': 'OK',
+    'oregon': 'OR',
+    'pennsylvania': 'PA',
+    'rhode island': 'RI',
+    'south carolina': 'SC',
+    'south dakota': 'SD',
+    'tennessee': 'TN',
+    'texas': 'TX',
+    'utah': 'UT',
+    'vermont': 'VT',
+    'virginia': 'VA',
+    'washington': 'WA',
+    'west virginia': 'WV',
+    'wisconsin': 'WI',
+    'wyoming': 'WY'
+  };
+  
+  const normalized = stateName.toLowerCase();
+  return stateMap[normalized] || null;
 };

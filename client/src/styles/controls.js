@@ -53,36 +53,147 @@ export const CONTROL_BUTTON_STYLES = {
 * @constant
 */
 export const MAP_CONTROL_STYLES = {
-   // Dropdown select styling
-   select: {
-       padding: '0.5rem 1rem',
-       backgroundColor: COLORS.primary,
-       color: COLORS.text.light,
-       borderRadius: '0.375rem',
-       cursor: 'pointer',
-       fontSize: '1rem'
-   },
-   // Disabled select state
-   selectDisabled: {
-       backgroundColor: COLORS.primaryLight,
-       cursor: 'not-allowed'
-   },
-   // Text input styling
-   input: {
-       padding: '0.5rem',
-       border: '1px solid ' + COLORS.border,
-       borderRadius: '0.375rem',
-       backgroundColor: 'white',
-       color: COLORS.text.primary,
-       fontSize: '1rem'
-   },
-   // Standard button styling
-   button: {
-       padding: '0.5rem 1rem',
-       backgroundColor: COLORS.primary,
-       color: COLORS.text.light,
-       borderRadius: '0.375rem',
-       cursor: 'pointer',
-       whiteSpace: 'nowrap'
-   }
+    // Dropdown select styling
+    select: {
+        padding: '0.5rem 1rem',
+        backgroundColor: COLORS.primary,
+        color: COLORS.text.light,
+        borderRadius: '0.375rem',
+        cursor: 'pointer',
+        fontSize: '1rem'
+    },
+    // Disabled select state
+    selectDisabled: {
+        backgroundColor: COLORS.primaryLight,
+        cursor: 'not-allowed'
+    },
+    // Text input styling
+    input: {
+        padding: '0.5rem',
+        border: '1px solid ' + COLORS.border,
+        borderRadius: '0.375rem',
+        backgroundColor: 'white',
+        color: COLORS.text.primary,
+        fontSize: '1rem'
+    },
+    // Disabled input state
+    inputDisabled: {
+        backgroundColor: COLORS.background,
+        cursor: 'not-allowed'
+    },
+    // Standard button styling
+    button: {
+        padding: '0.5rem 1rem',
+        backgroundColor: COLORS.primary,
+        color: COLORS.text.light,
+        borderRadius: '0.375rem',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap'
+    }
+};
+
+
+/**
+ * Styles for species search component
+ * @constant
+ */
+export const SPECIES_SEARCH_STYLES = {
+    // Container for the entire search component
+    container: {
+        position: 'relative',
+        width: '100%',
+        minWidth: '280px',
+        maxWidth: '400px'
+    },
+    // Dropdown menu container
+    dropdown: {
+        position: 'absolute',
+        top: 'calc(100% + 4px)',
+        left: 0,
+        right: 0,
+        backgroundColor: 'white',
+        border: '1px solid ' + COLORS.border,
+        borderRadius: '0.375rem',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+        maxHeight: '300px',
+        overflowY: 'auto',
+        zIndex: 1000
+    },
+    // Search input field
+    searchInput: {
+        ...MAP_CONTROL_STYLES.input,
+        width: '100%',
+        paddingRight: '2rem' // Space for clear button
+    },
+    // Clear button for search input
+    clearButton: {
+        position: 'absolute',
+        right: '0.5rem',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        cursor: 'pointer',
+        color: COLORS.text.secondary,
+        padding: '0.25rem',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    // Section for pinned options (All Birds, Rare Birds)
+    pinnedSection: {
+        borderBottom: '1px solid ' + COLORS.border,
+        padding: '0.25rem 0'
+    },
+    // Individual pinned option
+    pinnedOption: {
+        padding: '0.5rem 1rem',
+        cursor: 'pointer',
+        color: COLORS.text.primary,
+        fontSize: '1rem',
+        '&:hover': {
+            backgroundColor: COLORS.background
+        }
+    },
+    // Species list section
+    speciesList: {
+        padding: '0.25rem 0'
+    },
+    // Individual species option
+    speciesOption: {
+        padding: '0.5rem 1rem',
+        cursor: 'pointer',
+        borderBottom: '1px solid ' + COLORS.border,
+        '&:last-child': {
+            borderBottom: 'none'
+        },
+        '&:hover': {
+            backgroundColor: COLORS.background
+        }
+    },
+    // Species common name text
+    commonName: {
+        color: COLORS.text.primary,
+        fontSize: '1rem',
+        fontWeight: 'normal'
+    },
+    // Species scientific name text
+    scientificName: {
+        color: COLORS.text.secondary,
+        fontSize: '0.875rem',
+        fontStyle: 'italic'
+    },
+    // No results message
+    noResults: {
+        padding: '0.75rem 1rem',
+        color: COLORS.text.secondary,
+        textAlign: 'center',
+        fontSize: '0.875rem'
+    },
+    // Loading indicator
+    loading: {
+        padding: '0.75rem 1rem',
+        color: COLORS.text.secondary,
+        textAlign: 'center',
+        fontSize: '0.875rem'
+    }
 };
