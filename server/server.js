@@ -114,9 +114,10 @@ const fetchBirdData = async (query) => {
 };
 
 /**
- * Fetch region species list from eBird API
+ * Fetches region species list from eBird API
  * @param {string} regionCode - eBird region code (e.g., "US-CA")
- * @returns {Promise<Object>} Region species data
+ * @returns {Promise<Object[]>} Region species data
+ * @throws {Error} If API request fails
  */
 const fetchRegionSpecies = async (regionCode) => {
   const baseUrl = 'https://api.ebird.org/v2/product/spplist';
