@@ -22,36 +22,26 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { debounce } from 'lodash';
 import { debug } from '../../utils/debug';
 import { SPECIES_SEARCH_STYLES } from '../../styles/controls';
-import { SPECIES_CODES } from '../../utils/mapconstants';
+import { SPECIES_CODES, MOCK_SPECIES } from '../../utils/mapconstants';
 
-// Mock species list with taxonomy order
-const MOCK_SPECIES = [
-    { speciesCode: 'grhowl', comName: 'Great Horned Owl', sciName: 'Bubo virginianus', taxonOrder: 177 },
-    { speciesCode: 'bnowl1', comName: 'Barn Owl', sciName: 'Tyto alba', taxonOrder: 174 },
-    { speciesCode: 'brdowl', comName: 'Barred Owl', sciName: 'Strix varia', taxonOrder: 178 },
-    { speciesCode: 'screec1', comName: 'Eastern Screech-Owl', sciName: 'Megascops asio', taxonOrder: 175 },
-    { speciesCode: 'dowwoo', comName: 'Downy Woodpecker', sciName: 'Dryobates pubescens', taxonOrder: 207 },
-    { speciesCode: 'haiwoo', comName: 'Hairy Woodpecker', sciName: 'Dryobates villosus', taxonOrder: 208 },
-    { speciesCode: 'norfli', comName: 'Northern Flicker', sciName: 'Colaptes auratus', taxonOrder: 209 },
-    { speciesCode: 'pilwoo', comName: 'Pileated Woodpecker', sciName: 'Dryocopus pileatus', taxonOrder: 210 },
-    { speciesCode: 'rebwoo', comName: 'Red-bellied Woodpecker', sciName: 'Melanerpes carolinus', taxonOrder: 205 },
-    { speciesCode: 'blujay', comName: 'Blue Jay', sciName: 'Cyanocitta cristata', taxonOrder: 477 },
-    { speciesCode: 'stejay', comName: "Steller's Jay", sciName: 'Cyanocitta stelleri', taxonOrder: 478 },
-    { speciesCode: 'easblu', comName: 'Eastern Bluebird', sciName: 'Sialia sialis', taxonOrder: 637 },
-    { speciesCode: 'wesblu', comName: 'Western Bluebird', sciName: 'Sialia mexicana', taxonOrder: 638 },
-    { speciesCode: 'mtnblu', comName: 'Mountain Bluebird', sciName: 'Sialia currucoides', taxonOrder: 639 },
-    { speciesCode: 'daejun', comName: 'Dark-eyed Junco', sciName: 'Junco hyemalis', taxonOrder: 892 }
-].sort((a, b) => a.taxonOrder - b.taxonOrder); // Sort by taxonomy order
 
 /**
  * Species search component with typeahead filtering
  * @param {Object} props Component properties
  * @param {Function} props.onSpeciesSelect Callback when species is selected
  * @param {boolean} props.disabled Whether the search is disabled
- * @param {string} [props.initialValue=''] Initial search value
+ * @param {string} props.initialValue Initial search value
+ * @param {string} props.allSpeciesCode Code for "All Birds" option
+ * @param {string} props.rareSpeciesCode Code for "Rare Birds" option
  * @returns {React.ReactElement} Species search component
  */
-const SpeciesSearch = ({ onSpeciesSelect, disabled, initialValue = '' }) => {
+const SpeciesSearch = ({
+    onSpeciesSelect,
+    disabled,
+    initialValue,
+    allSpeciesCode,
+    rareSpeciesCode
+  }) => {
     const [searchTerm, setSearchTerm] = useState(initialValue);
     const [isOpen, setIsOpen] = useState(false);
     const [filteredSpecies, setFilteredSpecies] = useState(MOCK_SPECIES);
@@ -106,6 +96,10 @@ const SpeciesSearch = ({ onSpeciesSelect, disabled, initialValue = '' }) => {
         setIsOpen(false);
         onSpeciesSelect(selection);
     };
+
+    useEffect(() => {
+        setSearchTerm(initialValue);
+      }, [initialValue]);
 
     // Handle clicks outside dropdown
     useEffect(() => {

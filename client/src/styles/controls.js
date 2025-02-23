@@ -102,8 +102,9 @@ export const SPECIES_SEARCH_STYLES = {
     container: {
         position: 'relative',
         width: '100%',
-        minWidth: '280px',
-        maxWidth: '400px'
+        minWidth: '250px',
+        maxWidth: '250px',
+        zIndex: 1001
     },
     // Dropdown menu container
     dropdown: {
@@ -117,24 +118,25 @@ export const SPECIES_SEARCH_STYLES = {
         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
         maxHeight: '300px',
         overflowY: 'auto',
-        zIndex: 1000
+        zIndex: 1001,
+        width: '100%'
     },
     // Search input field
     searchInput: {
         ...MAP_CONTROL_STYLES.input,
         width: '100%',
-        paddingRight: '2rem' // Space for clear button
+        paddingRight: '.1rem' // Space for clear button
     },
     // Clear button for search input
     clearButton: {
         position: 'absolute',
-        right: '0.5rem',
+        right: '0.1rem',
         top: '50%',
         transform: 'translateY(-50%)',
         cursor: 'pointer',
         color: COLORS.text.secondary,
         padding: '0.25rem',
-        borderRadius: '50%',
+        borderRadius: '20%',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'

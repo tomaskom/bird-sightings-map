@@ -49,24 +49,26 @@ export const LAYOUT_STYLES = {
     // Groups related controls with minimum width
     controlGroup: {
         display: 'flex',
-        gap: '0.5rem',
+        gap: '1.5rem',
         alignItems: 'center',
-        flexWrap: 'wrap',
-        minWidth: '280px'
+        flexWrap: 'nowrap',
+        minWidth: '280px',
+        maxWidth: 'fit-content'
     },
     // Dropdown menu container
     pullDown: {
         display: 'flex',
         alignItems: 'center',
         gap: '0.25rem',
-        whiteSpace: 'nowrap'
+        whiteSpace: 'nowrap',
+        flexShrink: 0
     },
     // Search form with flexible width
     searchForm: {
         display: 'flex',
         gap: '0.25rem',
         flex: 1,
-        minWidth: '280px'
+        minWidth: '200px'
     },
     // Map wrapper with relative positioning
     mapContainer: {

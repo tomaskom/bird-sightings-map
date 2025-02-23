@@ -25,7 +25,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
-import { MapContainer, TileLayer, useMapEvents, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, useMapEvents, Marker, ZoomControl, Popup } from 'react-leaflet';
 import { MAP_CONTROL_STYLES } from '../styles/controls';
 import { LAYOUT_STYLES } from '../styles/layout';
 import { COLORS } from '../styles/colors';
@@ -45,7 +45,8 @@ import {
   DAYS_BACK_OPTIONS,
   SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
-  generateAttribution
+  generateAttribution,
+  getSpeciesDisplayName
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
@@ -248,6 +249,7 @@ const BirdMap = () => {
     detectCurrentRegion();
   }, [currentRegion]);
 
+  
   /**
    * Fetches bird sighting data based on current map position and filters
    * @async
@@ -365,7 +367,7 @@ const BirdMap = () => {
             onSpeciesSelect={handleSpeciesSelect}
             currentRegion={currentRegion}
             disabled={loading}
-            initialValue=""
+            initialValue={getSpeciesDisplayName(selectedSpecies, SPECIES_CODES)}
             allSpeciesCode={SPECIES_CODES.ALL}
             rareSpeciesCode={SPECIES_CODES.RARE}
           />
@@ -421,6 +423,7 @@ const BirdMap = () => {
             center={[urlParams.lat, urlParams.lng]}
             zoom={urlParams.zoom}
             style={LAYOUT_STYLES.map}
+            zoomControl={false}
             ref={(ref) => {
               debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
               setMapRef(ref);
@@ -432,6 +435,7 @@ const BirdMap = () => {
             />
             <MapEvents onMoveEnd={handleMoveEnd} />
             <PopupInteractionHandler />
+            <ZoomControl position="topright" />
             <LocationControl />
             {birdSightings.map((location, index) => (
               <BirdMarker
