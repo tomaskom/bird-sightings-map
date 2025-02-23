@@ -36,7 +36,11 @@ import {
   initializeMapIcons,
   calculateViewportRadius,
   shouldFetchNewData,
-  formatCoordinates
+  formatCoordinates,
+  getCountryInfo,
+  isWithinBounds,
+  getCachedCountry,
+  updateCountryCache
 } from '../utils/mapUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
 import { fetchBirdPhotos, processBirdSightings, buildApiUrl } from '../utils/dataUtils';
@@ -52,7 +56,6 @@ import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/
 import { LocationControl } from '../components/location/LocationControls';
 import { FadeNotification, LoadingOverlay } from '../components/ui/Notifications';
 import SpeciesSearch from '../components/ui/SpeciesSearch';
-import { detectRegion } from '../utils/mapUtils';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
 import 'leaflet.locatecontrol';
@@ -139,17 +142,15 @@ const BirdMap = () => {
   const [birdSightings, setBirdSightings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const [currentCountry, setCurrentCountry] = useState(null);
+  const [countryBounds, setCountryBounds] = useState(null);
   const [mapRef, setMapRef] = useState(null);
   const [selectedSpecies, setSelectedSpecies] = useState(DEFAULT_MAP_PARAMS.species);
   const [back, setBack] = useState(DEFAULT_MAP_PARAMS.back);
   const [zoom, setZoom] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
   const inputRef = useRef(null);
-  /**
-   * Current geographic region code (e.g. "US-CA")
-   * @type {[string | null, React.Dispatch<React.SetStateAction<string | null>>]}
-   */
-  const [currentRegion, setCurrentRegion] = useState(null);
+
 
   /**
    * Handles selection of a bird species from the search component
@@ -162,9 +163,9 @@ const BirdMap = () => {
     // The selection object contains either a type (for pinned options) 
     // or a speciesCode (for specific birds)
     const speciesCode = selection.type || selection.speciesCode;
-    
+
     setSelectedSpecies(speciesCode);
-  
+
     if (mapRef) {
       updateUrlParams({
         species: speciesCode
@@ -227,29 +228,37 @@ const BirdMap = () => {
    * Handles map movement events, updates center position and detects region changes
    * @param {L.LatLng} center - New center coordinates of the map
    */
+
   const handleMoveEnd = useCallback((center) => {
     debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
     setMapCenter({ lat: center.lat, lng: center.lng });
 
-    /**
-     * Detects and updates the current geographic region based on map center
-     * @async
-     */
-    const detectCurrentRegion = async () => {
-      try {
-        const region = await detectRegion(center);
-        if (region !== currentRegion) {
-          debug.debug('Region changed:', { from: currentRegion, to: region });
-          setCurrentRegion(region);
-        }
-      } catch (error) {
-        debug.error('Error detecting region:', error);
-      }
-    };
-    detectCurrentRegion();
-  }, [currentRegion]);
+    // Check if we've moved outside current country bounds
+    if (!countryBounds || !isWithinBounds(center.lat, center.lng, countryBounds)) {
+      debug.debug('Outside current country bounds, fetching new country info');
 
-  
+      const updateCountry = async () => {
+        try {
+          const { countryCode, bounds } = await getCountryInfo(center.lat, center.lng);
+
+          if (countryCode !== currentCountry) {
+            debug.info('Country changed:', { from: currentCountry, to: countryCode });
+            setCurrentCountry(countryCode);
+            setCountryBounds(bounds);
+            updateCountryCache(countryCode, bounds);
+
+            // Reset last fetch params to force new species data fetch
+            setLastFetchParams(null);
+          }
+        } catch (error) {
+          debug.error('Error updating country:', error);
+        }
+      };
+
+      updateCountry();
+    }
+  }, [currentCountry, countryBounds]);
+
   /**
    * Fetches bird sighting data based on current map position and filters
    * @async
@@ -259,7 +268,8 @@ const BirdMap = () => {
     const currentParams = {
       back,
       species: selectedSpecies,
-      radius: currentRadius
+      radius: currentRadius,
+      country: currentCountry
     };
 
     if (!shouldFetchNewData(
@@ -280,6 +290,7 @@ const BirdMap = () => {
         lng,
         radius: currentRadius,
         species: selectedSpecies,
+        country: currentCountry,
         back
       });
 
@@ -288,6 +299,7 @@ const BirdMap = () => {
         lng,
         radius: currentRadius,
         species: selectedSpecies,
+        country: currentCountry,
         back
       });
 
@@ -343,6 +355,17 @@ const BirdMap = () => {
         setSelectedSpecies(params.species);
         setBack(params.back);
         setZoom(params.zoom);
+
+        // Get initial country info
+        try {
+          const { countryCode, bounds } = await getCountryInfo(params.lat, params.lng);
+          setCurrentCountry(countryCode);
+          setCountryBounds(bounds);
+          updateCountryCache(countryCode, bounds);
+        } catch (error) {
+          debug.error('Error getting initial country:', error);
+        }
+
         setLastFetchParams(null);
         debug.info('URL parameters loaded:', params);
       } catch (error) {
@@ -365,8 +388,8 @@ const BirdMap = () => {
 
           <SpeciesSearch
             onSpeciesSelect={handleSpeciesSelect}
-            currentRegion={currentRegion}
             disabled={loading}
+            currentCountry={currentCountry}
             initialValue={getSpeciesDisplayName(selectedSpecies, SPECIES_CODES)}
             allSpeciesCode={SPECIES_CODES.ALL}
             rareSpeciesCode={SPECIES_CODES.RARE}
