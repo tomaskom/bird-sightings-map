@@ -56,8 +56,7 @@ import {
   DAYS_BACK_OPTIONS,
   SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
-  generateAttribution,
-  getSpeciesDisplayName
+  generateAttribution
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
@@ -461,7 +460,7 @@ const updateRegionSpecies = useCallback(async (regionCode) => {
             currentCountry={currentCountry}
             regionSpecies={regionSpecies}
             speciesLoading={speciesLoading}
-            initialValue={getSpeciesDisplayName(selectedSpecies, SPECIES_CODES)}
+            speciesCode={selectedSpecies}
             allSpeciesCode={SPECIES_CODES.ALL}
             rareSpeciesCode={SPECIES_CODES.RARE}
           />
