@@ -129,8 +129,8 @@ export const SPECIES_SEARCH_STYLES = {
     container: {
         position: 'relative',
         width: '100%',
-        minWidth: '280px',
-        maxWidth: '280px',
+        minWidth: '220px',
+        maxWidth: '220px',
         zIndex: 1001
     },
     inputWrapper: {
