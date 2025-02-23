@@ -184,7 +184,7 @@ export const SPECIES_SEARCH_STYLES = {
     pinnedSection: {
         borderBottom: BASE_STYLES.border,
         padding: BASE_STYLES.padding.tiny,
-        backgroundColor: COLORS.background
+        backgroundColor: 'white'
     },
     pinnedOption: {
         padding: BASE_STYLES.padding.default,
