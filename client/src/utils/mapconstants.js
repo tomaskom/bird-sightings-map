@@ -59,12 +59,13 @@ export const DAYS_BACK_OPTIONS = [
     lat: 36.9741,  // Santa Cruz, CA lat and lng
     lng: -122.0308,
     species: SPECIES_CODES.ALL,
+    speciesName: 'All Birds',
     back: "7",
     zoom: 12
    };
 
    export const REGION_BUFFER_DISTANCE = 25;
-   
+
    /** 
    * Mock species list with taxonomy order
    * @constant

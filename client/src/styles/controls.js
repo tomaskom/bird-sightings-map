@@ -130,13 +130,14 @@ export const SPECIES_SEARCH_STYLES = {
     // Clear button for search input
     clearButton: {
         position: 'absolute',
-        right: '0.1rem',
+        right: '0rem',
         top: '50%',
         transform: 'translateY(-50%)',
         cursor: 'pointer',
-        color: COLORS.text.secondary,
-        padding: '0.25rem',
-        borderRadius: '20%',
+        color: COLORS.text.light,
+        backgroundColor: COLORS.primary,
+        padding: '0.3rem',
+        borderRadius: '25%',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
