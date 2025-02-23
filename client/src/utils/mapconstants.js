@@ -64,7 +64,30 @@ export const DAYS_BACK_OPTIONS = [
    };
 
    export const REGION_BUFFER_DISTANCE = 25;
+   
+   /** 
+   * Mock species list with taxonomy order
+   * @constant
+   * @type {Array<{speciesCode: string, comName: string, sciName: string, taxonOrder: number}>}
+   */
+  export const MOCK_SPECIES = [
+    { speciesCode: 'grhowl', comName: 'Great Horned Owl', sciName: 'Bubo virginianus', taxonOrder: 177 },
+    { speciesCode: 'brdowl', comName: 'Barred Owl', sciName: 'Strix varia', taxonOrder: 178 },
+    { speciesCode: 'screec1', comName: 'Eastern Screech-Owl', sciName: 'Megascops asio', taxonOrder: 175 },
+    { speciesCode: 'dowwoo', comName: 'Downy Woodpecker', sciName: 'Dryobates pubescens', taxonOrder: 207 },
+    { speciesCode: 'haiwoo', comName: 'Hairy Woodpecker', sciName: 'Dryobates villosus', taxonOrder: 208 },
+    { speciesCode: 'norfli', comName: 'Northern Flicker', sciName: 'Colaptes auratus', taxonOrder: 209 },
+    { speciesCode: 'pilwoo', comName: 'Pileated Woodpecker', sciName: 'Dryocopus pileatus', taxonOrder: 210 },
+    { speciesCode: 'rebwoo', comName: 'Red-bellied Woodpecker', sciName: 'Melanerpes carolinus', taxonOrder: 205 },
+    { speciesCode: 'blujay', comName: 'Blue Jay', sciName: 'Cyanocitta cristata', taxonOrder: 477 },
+    { speciesCode: 'stejay', comName: "Steller's Jay", sciName: 'Cyanocitta stelleri', taxonOrder: 478 },
+    { speciesCode: 'easblu', comName: 'Eastern Bluebird', sciName: 'Sialia sialis', taxonOrder: 637 },
+    { speciesCode: 'wesblu', comName: 'Western Bluebird', sciName: 'Sialia mexicana', taxonOrder: 638 },
+    { speciesCode: 'mtnblu', comName: 'Mountain Bluebird', sciName: 'Sialia currucoides', taxonOrder: 639 },
+    { speciesCode: 'daejun', comName: 'Dark-eyed Junco', sciName: 'Junco hyemalis', taxonOrder: 892 }
+  ].sort((a, b) => a.taxonOrder - b.taxonOrder); // Sort by taxonomy order
 
+  
 /**
 * Configuration object defining attribution links and metadata
 * @type {Object.<string, {url: string, text: string, internal?: boolean}>}
@@ -120,6 +143,7 @@ switch (speciesCode) {
   case speciesCodes.RARE:
     return 'Rare Birds';
   default:
+    const species = MOCK_SPECIES.find(s => s.speciesCode === speciesCode);
     return species ? species.comName : '';
 }
 };
