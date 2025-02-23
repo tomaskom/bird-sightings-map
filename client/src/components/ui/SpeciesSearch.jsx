@@ -22,7 +22,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { debounce } from 'lodash';
 import { debug } from '../../utils/debug';
 import { SPECIES_SEARCH_STYLES } from '../../styles/controls';
-import { COLORS } from '../../styles/colors';
 
 const SpeciesSearch = ({
     onSpeciesSelect,
@@ -42,6 +41,13 @@ const SpeciesSearch = ({
         disabled
     });
 
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isOpen, setIsOpen] = useState(false);
+    const [filteredSpecies, setFilteredSpecies] = useState([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const currentSelectionRef = useRef('');
+    const dropdownRef = useRef(null);
+
     // Function to get display name from code
     const getDisplayName = useCallback((code) => {
         if (code === allSpeciesCode) return 'All Birds';
@@ -49,13 +55,6 @@ const SpeciesSearch = ({
         const species = regionSpecies.find(s => s.speciesCode === code);
         return species ? species.commonName : '';
     }, [regionSpecies, allSpeciesCode, rareSpeciesCode]);
-
-    const [searchTerm, setSearchTerm] = useState('');
-    const [isOpen, setIsOpen] = useState(false);
-    const [filteredSpecies, setFilteredSpecies] = useState([]);
-    const [isSearching, setIsSearching] = useState(false);
-    const currentSelectionRef = useRef('');
-    const dropdownRef = useRef(null);
 
     // Initialize or update display name when code or species list changes
     useEffect(() => {
@@ -83,12 +82,10 @@ const SpeciesSearch = ({
         }
     
         const normalizedTerm = term.toLowerCase();
-        const results = regionSpecies.filter(species =>
+        return regionSpecies.filter(species =>
             species.commonName?.toLowerCase().includes(normalizedTerm) ||
             species.scientificName?.toLowerCase().includes(normalizedTerm)
         );
-    
-        return results;
     };
 
     const debouncedSearch = useCallback(
@@ -129,7 +126,7 @@ const SpeciesSearch = ({
         onSpeciesSelect(selection);
     };
 
-    const handleBlur = (e) => {
+    const handleBlur = () => {
         setTimeout(() => {
             if (!isSearching || dropdownRef.current?.contains(document.activeElement)) {
                 return;
@@ -160,21 +157,9 @@ const SpeciesSearch = ({
         }
     };
 
-    // Style for selected state
-    const getInputStyle = () => ({
-        ...SPECIES_SEARCH_STYLES.searchInput,
-        ...(searchTerm && !isSearching ? {
-            fontStyle: 'italic',
-            color: '#666',
-        } : {
-            fontStyle: 'normal',
-            color: COLORS.text.primary,
-        }),
-    });
-
     return (
         <div ref={dropdownRef} style={SPECIES_SEARCH_STYLES.container}>
-            <div style={{ position: 'relative' }}>
+            <div style={SPECIES_SEARCH_STYLES.inputWrapper}>
                 <input
                     type="text"
                     value={searchTerm || ''}
@@ -199,29 +184,20 @@ const SpeciesSearch = ({
                     placeholder={
                         speciesLoading ? "Loading species..." :
                         !currentCountry ? "Select location first" :
-                        "Select Species"
+                        "Filter Species"
                     }
                     disabled={disabled || speciesLoading || !currentCountry}
-                    style={getInputStyle()}
+                    style={{
+                        ...SPECIES_SEARCH_STYLES.searchInput,
+                        ...(searchTerm && !isSearching 
+                            ? SPECIES_SEARCH_STYLES.searchInputSelected 
+                            : SPECIES_SEARCH_STYLES.searchInputNormal)
+                    }}
                 />
                 {!isSearching && (
                     <div style={{
-                        position: 'absolute',
-                        right: '8px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        pointerEvents: 'none',
-                        backgroundColor: COLORS.primary,
-                        color: COLORS.text.light,
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '25%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '16px',
-                        lineHeight: '1',
-                        fontWeight: 'bold'
+                        ...SPECIES_SEARCH_STYLES.inputIndicator,
+                        ...SPECIES_SEARCH_STYLES.inputIndicatorDisabled
                     }}>
                         ▾
                     </div>
@@ -233,7 +209,7 @@ const SpeciesSearch = ({
                             debouncedSearch('');
                             setIsOpen(true);
                         }}
-                        style={SPECIES_SEARCH_STYLES.clearButton}
+                        style={SPECIES_SEARCH_STYLES.inputIndicator}
                         aria-label="Clear search"
                     >
                         X
@@ -242,11 +218,7 @@ const SpeciesSearch = ({
             </div>
 
             {isOpen && (
-                <div style={{
-                    ...SPECIES_SEARCH_STYLES.dropdown,
-                    maxHeight: '300px',
-                    overflowY: 'auto'
-                }}>
+                <div style={SPECIES_SEARCH_STYLES.dropdown}>
                     <div style={SPECIES_SEARCH_STYLES.pinnedSection}>
                         <div
                             style={SPECIES_SEARCH_STYLES.pinnedOption}
@@ -257,7 +229,7 @@ const SpeciesSearch = ({
                             role="option"
                             aria-selected={currentSelectionRef.current === 'All Birds'}
                         >
-                            <span style={{ marginRight: '8px', width: '16px', display: 'inline-block' }}>
+                            <span style={SPECIES_SEARCH_STYLES.checkmark}>
                                 {currentSelectionRef.current === 'All Birds' ? '✓' : ''}
                             </span>
                             All Birds
@@ -271,7 +243,7 @@ const SpeciesSearch = ({
                             role="option"
                             aria-selected={currentSelectionRef.current === 'Rare Birds'}
                         >
-                            <span style={{ marginRight: '8px', width: '16px', display: 'inline-block' }}>
+                            <span style={SPECIES_SEARCH_STYLES.checkmark}>
                                 {currentSelectionRef.current === 'Rare Birds' ? '✓' : ''}
                             </span>
                             Rare Birds
@@ -289,7 +261,7 @@ const SpeciesSearch = ({
                                     aria-selected={currentSelectionRef.current === species.commonName}
                                 >
                                     <div style={SPECIES_SEARCH_STYLES.commonName}>
-                                        <span style={{ marginRight: '8px', width: '16px', display: 'inline-block' }}>
+                                        <span style={SPECIES_SEARCH_STYLES.checkmark}>
                                             {currentSelectionRef.current === species.commonName ? '✓' : ''}
                                         </span>
                                         {species.commonName}
