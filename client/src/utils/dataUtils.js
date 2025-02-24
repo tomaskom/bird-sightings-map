@@ -159,3 +159,97 @@ export const buildApiUrl = (params) => {
 
   return `${import.meta.env.VITE_API_URL}/api/birds?${searchParams}`;
 };
+
+/**
+ * Builds API URL for forward geocoding
+ * @param {string} query - Search query for location
+ * @returns {string} Formatted API URL
+ */
+export const buildForwardGeocodeUrl = (query) => {
+  return `${import.meta.env.VITE_API_URL}/api/forward-geocode?q=${encodeURIComponent(query)}`;
+};
+
+/**
+ * Builds API URL for reverse geocoding
+ * @param {number} lat - Latitude coordinate
+ * @param {number} lng - Longitude coordinate
+ * @returns {string} Formatted API URL
+ */
+export const buildReverseGeocodeUrl = (lat, lng) => {
+  return `${import.meta.env.VITE_API_URL}/api/reverse-geocode?lat=${lat}&lon=${lng}`;
+};
+
+/**
+* Fetches location details with retry logic
+* @param {number} lat - Latitude coordinate
+* @param {number} lng - Longitude coordinate
+* @param {number} [retries=2] - Number of retries on rate limit
+* @returns {Promise<Object>} Location details
+*/
+export const fetchLocationDetails = async (lat, lng, retries = 2) => {
+ debug.debug('Getting country info for coordinates:', { lat, lng });
+ 
+ try {
+   const response = await fetch(buildReverseGeocodeUrl(lat, lng));
+   
+   if (response.status === 429 && retries > 0) {
+     debug.debug('Rate limited, retrying after delay...', { retriesLeft: retries });
+     await new Promise(resolve => setTimeout(resolve, 1100)); // Wait just over 1 second
+     return fetchLocationDetails(lat, lng, retries - 1);
+   }
+   
+   if (!response.ok) {
+     throw new Error(`HTTP error! status: ${response.status}`);
+   }
+   
+   const data = await response.json();
+ 
+   if (data.found) {
+     return {
+       countryCode: data.address.country_code.toUpperCase(),
+       bounds: data.boundingbox ? {
+         minX: parseFloat(data.boundingbox[2]),
+         maxX: parseFloat(data.boundingbox[3]), 
+         minY: parseFloat(data.boundingbox[0]),
+         maxY: parseFloat(data.boundingbox[1])
+       } : null
+     };
+   }
+   
+   // Return a default response when location not found
+   return {
+     countryCode: 'UNKNOWN',
+     bounds: null
+   };
+ } catch (error) {
+   debug.error('Error getting country info:', error);
+   // Return a default response on error
+   return {
+     countryCode: 'UNKNOWN',
+     bounds: null
+   };
+ }
+};
+
+
+/**
+ * Searches for a location using forward geocoding
+ * @param {string} query - Search query
+ * @returns {Promise<Object>} Location data
+ */
+export const searchLocation = async (query) => {
+  debug.debug('Searching location:', query);
+  
+  try {
+    const response = await fetch(buildForwardGeocodeUrl(query));
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    debug.error('Error searching location:', error);
+    throw error;
+  }
+};

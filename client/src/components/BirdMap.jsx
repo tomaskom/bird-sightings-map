@@ -37,13 +37,12 @@ import {
   calculateViewportRadius,
   shouldFetchNewData,
   formatCoordinates,
-  getCountryInfo,
   isWithinBounds,
   getCachedCountry,
   updateCountryCache
 } from '../utils/mapUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
-import { fetchBirdPhotos, processBirdSightings, buildApiUrl } from '../utils/dataUtils';
+import { fetchBirdPhotos, processBirdSightings, buildApiUrl, fetchLocationDetails, searchLocation } from '../utils/dataUtils';
 import {
   filterSpeciesByName,
   fetchRegionSpecies,
@@ -163,38 +162,38 @@ const BirdMap = () => {
    * Fetches and updates species list for the current region
    * @param {string} regionCode - Region code to fetch species for 
    */
-// In the updateRegionSpecies function:
-const updateRegionSpecies = useCallback(async (regionCode) => {
-  debug.debug('updateRegionSpecies called with:', regionCode);
-  
-  if (!regionCode) {
-    debug.warn('Empty region code provided to updateRegionSpecies');
-    return;
-  }
+  // In the updateRegionSpecies function:
+  const updateRegionSpecies = useCallback(async (regionCode) => {
+    debug.debug('updateRegionSpecies called with:', regionCode);
 
-  const cachedSpecies = getCachedSpecies(regionCode);
-  if (cachedSpecies) {
-    debug.debug('Using cached species data:', { count: cachedSpecies.length });
-    setRegionSpecies(cachedSpecies);
-    return;
-  }
+    if (!regionCode) {
+      debug.warn('Empty region code provided to updateRegionSpecies');
+      return;
+    }
 
-  debug.info('Fetching species for new region:', regionCode);
-  setSpeciesLoading(true);
+    const cachedSpecies = getCachedSpecies(regionCode);
+    if (cachedSpecies) {
+      debug.debug('Using cached species data:', { count: cachedSpecies.length });
+      setRegionSpecies(cachedSpecies);
+      return;
+    }
 
-  try {
-    const species = await fetchRegionSpecies(regionCode);
-    debug.debug('Received species data:', { count: species.length });
-    updateRegionCache(regionCode, species);
-    setRegionSpecies(species);
-    debug.info('Updated region species:', { count: species.length });
-  } catch (error) {
-    debug.error('Failed to fetch region species:', error);
-    setRegionSpecies([]);
-  } finally {
-    setSpeciesLoading(false);
-  }
-}, []);
+    debug.info('Fetching species for new region:', regionCode);
+    setSpeciesLoading(true);
+
+    try {
+      const species = await fetchRegionSpecies(regionCode);
+      debug.debug('Received species data:', { count: species.length });
+      updateRegionCache(regionCode, species);
+      setRegionSpecies(species);
+      debug.info('Updated region species:', { count: species.length });
+    } catch (error) {
+      debug.error('Failed to fetch region species:', error);
+      setRegionSpecies([]);
+    } finally {
+      setSpeciesLoading(false);
+    }
+  }, []);
 
   /**
    * Handles selection of a bird species from the search component
@@ -218,13 +217,12 @@ const updateRegionSpecies = useCallback(async (regionCode) => {
     }
   }, [mapRef]);
 
-
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchInput.trim() || !mapRef) return;
-
+  
     debug.debug('Initiating location search for:', searchInput);
-
+  
     if (inputRef.current) {
       inputRef.current.blur();
       document.body.style.transform = 'scale(1)';
@@ -235,17 +233,13 @@ const updateRegionSpecies = useCallback(async (regionCode) => {
         });
       });
     }
-
+  
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchInput)}`
-      );
-      const data = await response.json();
-
-      if (data && data[0]) {
-        const { lat, lon } = data[0];
-        debug.info('Location found:', { lat, lon, displayName: data[0].display_name });
-        mapRef.flyTo([lat, lon], 12);
+      const data = await searchLocation(searchInput);
+  
+      if (data.found) {
+        debug.info('Location found:', data);
+        mapRef.flyTo([data.lat, data.lon], 12);
         setSearchInput('');
       } else {
         debug.warn('No location found for search:', searchInput);
@@ -265,6 +259,7 @@ const updateRegionSpecies = useCallback(async (regionCode) => {
       updateUrlParams({
         back: newDays,
       });
+      setLastFetchParams(null); // Force refetch with new days
     }
   };
 
@@ -280,37 +275,33 @@ const updateRegionSpecies = useCallback(async (regionCode) => {
     // Check if we've moved outside current country bounds
     if (!countryBounds || !isWithinBounds(center.lat, center.lng, countryBounds)) {
       debug.debug('Outside current country bounds, fetching new country info');
-
+    
       const updateCountry = async () => {
         try {
-          const { countryCode, bounds } = await getCountryInfo(center.lat, center.lng);
-
-          debug.debug('Received country info:', { countryCode, bounds });
-
-          if (countryCode !== currentCountry) {
+          const countryInfo = await fetchLocationDetails(center.lat, center.lng);
+          
+          if (countryInfo.countryCode !== currentCountry) {
             debug.debug('Country code comparison:', {
-              new: countryCode,
+              new: countryInfo.countryCode,
               current: currentCountry,
-              isChanged: countryCode !== currentCountry
+              isChanged: countryInfo.countryCode !== currentCountry
             });
-
-            setCurrentCountry(countryCode);
-            setCountryBounds(bounds);
-            updateCountryCache(countryCode, bounds);
-
-            // Make sure this call happens
-            debug.debug('Initiating species fetch for country:', countryCode);
-            await updateRegionSpecies(countryCode);
+    
+            setCurrentCountry(countryInfo.countryCode);
+            setCountryBounds(countryInfo.bounds);
+            updateCountryCache(countryInfo.countryCode, countryInfo.bounds);
+    
+            debug.debug('Initiating species fetch for country:', countryInfo.countryCode);
+            await updateRegionSpecies(countryInfo.countryCode);
             debug.debug('Completed species fetch');
-
-            // Reset last fetch params to force new species data fetch
+    
             setLastFetchParams(null);
           }
         } catch (error) {
           debug.error('Error updating country:', error);
         }
       };
-
+    
       updateCountry();
     }
   }, [currentCountry, countryBounds, updateRegionSpecies]);
@@ -411,37 +402,40 @@ const updateRegionSpecies = useCallback(async (regionCode) => {
         setSelectedSpecies(params.species);
         setBack(params.back);
         setZoom(params.zoom);
-  
+
         // Get initial country info
         try {
-          const { countryCode, bounds } = await getCountryInfo(params.lat, params.lng);
-          debug.debug('Received country info:', { countryCode, bounds });
-          setCurrentCountry(countryCode);
-          setCountryBounds(bounds);
-          updateCountryCache(countryCode, bounds);
-  
-          // Add this species fetch:
-          debug.debug('Fetching initial species list for country:', countryCode);
-          const cachedSpecies = getCachedSpecies(countryCode);
-          if (cachedSpecies) {
-            debug.debug('Using cached species data:', { count: cachedSpecies.length });
-            setRegionSpecies(cachedSpecies);
-          } else {
-            await updateRegionSpecies(countryCode);
+          const countryInfo = await fetchLocationDetails(params.lat, params.lng);
+          debug.debug('Received country info:', countryInfo);
+          
+          if (countryInfo.countryCode !== 'UNKNOWN') {
+            setCurrentCountry(countryInfo.countryCode);
+            if (countryInfo.bounds) {
+              setCountryBounds(countryInfo.bounds);
+              updateCountryCache(countryInfo.countryCode, countryInfo.bounds);
+            }
+        
+            debug.debug('Fetching initial species list for country:', countryInfo.countryCode);
+            const cachedSpecies = getCachedSpecies(countryInfo.countryCode);
+            if (cachedSpecies) {
+              debug.debug('Using cached species data:', { count: cachedSpecies.length });
+              setRegionSpecies(cachedSpecies);
+            } else {
+              await updateRegionSpecies(countryInfo.countryCode);
+            }
           }
-  
         } catch (error) {
           debug.error('Error getting initial country:', error);
         }
-  
-        setLastFetchParams(null);
-        debug.info('URL parameters loaded:', params);
-      } catch (error) {
-        debug.error('Error loading URL parameters:', error);
-      }
-    };
-    loadUrlParams();
-  }, [updateRegionSpecies]);;
+
+      setLastFetchParams(null);
+      debug.info('URL parameters loaded:', params);
+    } catch (error) {
+      debug.error('Error loading URL parameters:', error);
+    }
+  };
+  loadUrlParams();
+}, [updateRegionSpecies]);
 
   // Show notification only once on initial mount
   useEffect(() => {
