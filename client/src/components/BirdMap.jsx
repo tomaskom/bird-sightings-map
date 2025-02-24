@@ -25,7 +25,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
-import { MapContainer, TileLayer, useMapEvents, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, useMapEvents, Marker, ZoomControl, Popup } from 'react-leaflet';
 import { MAP_CONTROL_STYLES } from '../styles/controls';
 import { LAYOUT_STYLES } from '../styles/layout';
 import { COLORS } from '../styles/colors';
@@ -36,20 +36,31 @@ import {
   initializeMapIcons,
   calculateViewportRadius,
   shouldFetchNewData,
-  formatCoordinates
+  formatCoordinates,
+  isWithinBounds,
+  getCachedCountry,
+  updateCountryCache
 } from '../utils/mapUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
-import { fetchBirdPhotos, processBirdSightings, buildApiUrl } from '../utils/dataUtils';
+import { fetchBirdPhotos, processBirdSightings, buildApiUrl, fetchLocationDetails, searchLocation } from '../utils/dataUtils';
+import {
+  filterSpeciesByName,
+  fetchRegionSpecies,
+  updateRegionCache,
+  isRegionCached,
+  getCachedSpecies
+} from '../utils/taxonomyUtils';
 import {
   MAP_TILE_URL,
   DAYS_BACK_OPTIONS,
-  SIGHTING_TYPES,
+  SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
   generateAttribution
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
 import { FadeNotification, LoadingOverlay } from '../components/ui/Notifications';
+import SpeciesSearch from '../components/ui/SpeciesSearch';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
 import 'leaflet.locatecontrol';
@@ -125,6 +136,7 @@ const MapEvents = ({ onMoveEnd }) => {
 /**
  * Main map component that displays bird sightings and handles user interactions
  * Manages state for map location, sightings data, search, and filtering
+ * @returns {React.ReactElement} The BirdMap component
  */
 const BirdMap = () => {
   // State declarations
@@ -135,19 +147,82 @@ const BirdMap = () => {
   const [birdSightings, setBirdSightings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const [currentCountry, setCurrentCountry] = useState(null);
+  const [countryBounds, setCountryBounds] = useState(null);
+  const [regionSpecies, setRegionSpecies] = useState([]);
+  const [speciesLoading, setSpeciesLoading] = useState(false);
   const [mapRef, setMapRef] = useState(null);
-  const [sightingType, setSightingType] = useState(DEFAULT_MAP_PARAMS.sightingType);
+  const [selectedSpecies, setSelectedSpecies] = useState(DEFAULT_MAP_PARAMS.species);
   const [back, setBack] = useState(DEFAULT_MAP_PARAMS.back);
   const [zoom, setZoom] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
   const inputRef = useRef(null);
 
+  /**
+   * Fetches and updates species list for the current region
+   * @param {string} regionCode - Region code to fetch species for 
+   */
+  // In the updateRegionSpecies function:
+  const updateRegionSpecies = useCallback(async (regionCode) => {
+    debug.debug('updateRegionSpecies called with:', regionCode);
+
+    if (!regionCode) {
+      debug.warn('Empty region code provided to updateRegionSpecies');
+      return;
+    }
+
+    const cachedSpecies = getCachedSpecies(regionCode);
+    if (cachedSpecies) {
+      debug.debug('Using cached species data:', { count: cachedSpecies.length });
+      setRegionSpecies(cachedSpecies);
+      return;
+    }
+
+    debug.info('Fetching species for new region:', regionCode);
+    setSpeciesLoading(true);
+
+    try {
+      const species = await fetchRegionSpecies(regionCode);
+      debug.debug('Received species data:', { count: species.length });
+      updateRegionCache(regionCode, species);
+      setRegionSpecies(species);
+      debug.info('Updated region species:', { count: species.length });
+    } catch (error) {
+      debug.error('Failed to fetch region species:', error);
+      setRegionSpecies([]);
+    } finally {
+      setSpeciesLoading(false);
+    }
+  }, []);
+
+  /**
+   * Handles selection of a bird species from the search component
+   * @param {Object} selection - The selected species object
+   * @param {string} [selection.type] - Type for special filters (rare/recent)
+   * @param {string} [selection.speciesCode] - Species code for specific birds
+   */
+  const handleSpeciesSelect = useCallback((selection) => {
+    debug.debug('Species selected:', selection);
+    // The selection object contains either a type (for pinned options) 
+    // or a speciesCode (for specific birds)
+    const speciesCode = selection.type || selection.speciesCode;
+
+    setSelectedSpecies(speciesCode);
+
+    if (mapRef) {
+      updateUrlParams({
+        species: speciesCode
+      });
+      setLastFetchParams(null); // Force refetch with new species
+    }
+  }, [mapRef]);
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchInput.trim() || !mapRef) return;
-
+  
     debug.debug('Initiating location search for:', searchInput);
-
+  
     if (inputRef.current) {
       inputRef.current.blur();
       document.body.style.transform = 'scale(1)';
@@ -158,17 +233,13 @@ const BirdMap = () => {
         });
       });
     }
-
+  
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchInput)}`
-      );
-      const data = await response.json();
-
-      if (data && data[0]) {
-        const { lat, lon } = data[0];
-        debug.info('Location found:', { lat, lon, displayName: data[0].display_name });
-        mapRef.flyTo([lat, lon], 12);
+      const data = await searchLocation(searchInput);
+  
+      if (data.found) {
+        debug.info('Location found:', data);
+        mapRef.flyTo([data.lat, data.lon], 12);
         setSearchInput('');
       } else {
         debug.warn('No location found for search:', searchInput);
@@ -188,17 +259,65 @@ const BirdMap = () => {
       updateUrlParams({
         back: newDays,
       });
+      setLastFetchParams(null); // Force refetch with new days
     }
   };
+
+  /**
+   * Handles map movement events, updates center position and detects region changes
+   * @param {L.LatLng} center - New center coordinates of the map
+   */
 
   const handleMoveEnd = useCallback((center) => {
     debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
     setMapCenter({ lat: center.lat, lng: center.lng });
-  }, []);
 
+    // Check if we've moved outside current country bounds
+    if (!countryBounds || !isWithinBounds(center.lat, center.lng, countryBounds)) {
+      debug.debug('Outside current country bounds, fetching new country info');
+    
+      const updateCountry = async () => {
+        try {
+          const countryInfo = await fetchLocationDetails(center.lat, center.lng);
+          
+          if (countryInfo.countryCode !== currentCountry) {
+            debug.debug('Country code comparison:', {
+              new: countryInfo.countryCode,
+              current: currentCountry,
+              isChanged: countryInfo.countryCode !== currentCountry
+            });
+    
+            setCurrentCountry(countryInfo.countryCode);
+            setCountryBounds(countryInfo.bounds);
+            updateCountryCache(countryInfo.countryCode, countryInfo.bounds);
+    
+            debug.debug('Initiating species fetch for country:', countryInfo.countryCode);
+            await updateRegionSpecies(countryInfo.countryCode);
+            debug.debug('Completed species fetch');
+    
+            setLastFetchParams(null);
+          }
+        } catch (error) {
+          debug.error('Error updating country:', error);
+        }
+      };
+    
+      updateCountry();
+    }
+  }, [currentCountry, countryBounds, updateRegionSpecies]);
+
+  /**
+   * Fetches bird sighting data based on current map position and filters
+   * @async
+   */
   const fetchBirdData = async () => {
     const currentRadius = calculateViewportRadius(mapRef.getBounds());
-    const currentParams = { back, sightingType, radius: currentRadius };
+    const currentParams = {
+      back,
+      species: selectedSpecies,
+      radius: currentRadius,
+      country: currentCountry
+    };
 
     if (!shouldFetchNewData(
       lastFetchParams,
@@ -217,7 +336,8 @@ const BirdMap = () => {
         lat,
         lng,
         radius: currentRadius,
-        type: sightingType,
+        species: selectedSpecies,
+        country: currentCountry,
         back
       });
 
@@ -225,7 +345,8 @@ const BirdMap = () => {
         lat,
         lng,
         radius: currentRadius,
-        type: sightingType,
+        species: selectedSpecies,
+        country: currentCountry,
         back
       });
 
@@ -245,7 +366,7 @@ const BirdMap = () => {
 
       setBirdSightings(processedSightings);
       setLastFetchLocation({ lat, lng });
-      setLastFetchParams({ back, sightingType, radius: currentRadius });
+      setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius });
 
     } catch (error) {
       debug.error('Error fetching bird data:', error);
@@ -259,16 +380,16 @@ const BirdMap = () => {
     debug.debug('Fetch effect running with:', {
       loading,
       mapCenter,
-      sightingType,
+      selectedSpecies,
       back,
       zoom,
       hasMapRef: !!mapRef
     });
-    if (!loading && mapCenter && sightingType && back && zoom && mapRef) {
+    if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef) {
       debug.debug('Triggering bird data fetch');
       fetchBirdData();
     }
-  }, [back, sightingType, mapCenter, zoom, mapRef]);
+  }, [back, selectedSpecies, mapCenter, zoom, mapRef]);
 
   // Load URL parameters on component mount
   useEffect(() => {
@@ -278,17 +399,43 @@ const BirdMap = () => {
         const params = await getMapParamsFromUrl();
         setUrlParams(params);
         setMapCenter({ lat: params.lat, lng: params.lng });
-        setSightingType(params.sightingType);
+        setSelectedSpecies(params.species);
         setBack(params.back);
         setZoom(params.zoom);
-        setLastFetchParams(null);
-        debug.info('URL parameters loaded:', params);
-      } catch (error) {
-        debug.error('Error loading URL parameters:', error);
-      }
-    };
-    loadUrlParams();
-  }, []);
+
+        // Get initial country info
+        try {
+          const countryInfo = await fetchLocationDetails(params.lat, params.lng);
+          debug.debug('Received country info:', countryInfo);
+          
+          if (countryInfo.countryCode !== 'UNKNOWN') {
+            setCurrentCountry(countryInfo.countryCode);
+            if (countryInfo.bounds) {
+              setCountryBounds(countryInfo.bounds);
+              updateCountryCache(countryInfo.countryCode, countryInfo.bounds);
+            }
+        
+            debug.debug('Fetching initial species list for country:', countryInfo.countryCode);
+            const cachedSpecies = getCachedSpecies(countryInfo.countryCode);
+            if (cachedSpecies) {
+              debug.debug('Using cached species data:', { count: cachedSpecies.length });
+              setRegionSpecies(cachedSpecies);
+            } else {
+              await updateRegionSpecies(countryInfo.countryCode);
+            }
+          }
+        } catch (error) {
+          debug.error('Error getting initial country:', error);
+        }
+
+      setLastFetchParams(null);
+      debug.info('URL parameters loaded:', params);
+    } catch (error) {
+      debug.error('Error loading URL parameters:', error);
+    }
+  };
+  loadUrlParams();
+}, [updateRegionSpecies]);
 
   // Show notification only once on initial mount
   useEffect(() => {
@@ -300,28 +447,17 @@ const BirdMap = () => {
     <div style={LAYOUT_STYLES.container}>
       <div style={LAYOUT_STYLES.controlsWrapper}>
         <div style={LAYOUT_STYLES.controlGroup}>
-          <select
-            value={sightingType}
-            onChange={(e) => {
-              const newType = e.target.value;
-              debug.debug('Changing sighting type to:', newType);
-              setSightingType(newType);
-              if (mapRef) {
-                updateUrlParams({
-                  type: newType
-                });
-              }
-              setLastFetchParams(null);
-            }}
-            disabled={loading}
-            style={{
-              ...MAP_CONTROL_STYLES.select,
-              ...(loading && MAP_CONTROL_STYLES.selectDisabled)
-            }}
-          >
-            <option value={SIGHTING_TYPES.RECENT}>Recent Sightings</option>
-            <option value={SIGHTING_TYPES.RARE}>Rare Bird Sightings</option>
-          </select>
+
+          <SpeciesSearch
+            onSpeciesSelect={handleSpeciesSelect}
+            disabled={loading || speciesLoading}
+            currentCountry={currentCountry}
+            regionSpecies={regionSpecies}
+            speciesLoading={speciesLoading}
+            speciesCode={selectedSpecies}
+            allSpeciesCode={SPECIES_CODES.ALL}
+            rareSpeciesCode={SPECIES_CODES.RARE}
+          />
 
           <div style={LAYOUT_STYLES.pullDown}>
             <span style={{ color: COLORS.text.primary }}>Last</span>
@@ -374,6 +510,7 @@ const BirdMap = () => {
             center={[urlParams.lat, urlParams.lng]}
             zoom={urlParams.zoom}
             style={LAYOUT_STYLES.map}
+            zoomControl={false}
             ref={(ref) => {
               debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
               setMapRef(ref);
@@ -385,6 +522,7 @@ const BirdMap = () => {
             />
             <MapEvents onMoveEnd={handleMoveEnd} />
             <PopupInteractionHandler />
+            <ZoomControl position="topright" />
             <LocationControl />
             {birdSightings.map((location, index) => (
               <BirdMarker

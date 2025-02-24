@@ -16,7 +16,7 @@
 *
 * Project: bird-sightings-map
 * Description: Map utility functions for handling markers, icons, viewport
-* calculations, and geographic distance computations.
+* calculations, and geographic computations.
 *
 * Dependencies: leaflet, debug.js
 */
@@ -43,19 +43,7 @@ export const DefaultIcon = L.icon({
  */
 export const MultipleIcon = L.divIcon({
   className: 'custom-div-icon',
-  html: `
-    <div style="
-      background-color: #3B82F6; 
-      color: white; 
-      border-radius: 50%; 
-      width: 30px; 
-      height: 30px; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      border: 2px solid white;
-    ">+</div>
-  `,
+  html: `<div style="background-color: #3B82F6; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white;">+</div>`,
   iconSize: [30, 30],
   iconAnchor: [15, 15]
 });
@@ -66,6 +54,61 @@ export const MultipleIcon = L.divIcon({
 export const initializeMapIcons = () => {
   debug.debug('Initializing map icons');
   L.Marker.prototype.options.icon = DefaultIcon;
+};
+
+/**
+ * Cache for country data including bounds and last fetch time
+ * @type {Map<string, {bounds: Object, timestamp: number}>}
+ */
+const countryCache = new Map();
+
+/**
+ * Time-to-live for cached country data (7 days)
+ * @type {number}
+ */
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Checks if a point is within a bounding box
+ * @param {number} lat - Latitude to check
+ * @param {number} lng - Longitude to check
+ * @param {Object} bounds - Bounding box to check against
+ * @returns {boolean} Whether the point is within the bounds
+ */
+export const isWithinBounds = (lat, lng, bounds) => {
+  if (!bounds) return false;
+  
+  return lat >= bounds.minY && 
+         lat <= bounds.maxY && 
+         lng >= bounds.minX && 
+         lng <= bounds.maxX;
+};
+
+/**
+ * Gets cached country data if available and not expired
+ * @param {string} countryCode - ISO country code
+ * @returns {Object|null} Cached country data or null if not available
+ */
+export const getCachedCountry = (countryCode) => {
+  const cached = countryCache.get(countryCode);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+    debug.debug('Using cached country data for:', countryCode);
+    return cached;
+  }
+  return null;
+};
+
+/**
+ * Updates the country cache with new data
+ * @param {string} countryCode - ISO country code
+ * @param {Object} bounds - Country boundary data
+ */
+export const updateCountryCache = (countryCode, bounds) => {
+  debug.debug('Updating country cache for:', countryCode);
+  countryCache.set(countryCode, {
+    bounds,
+    timestamp: Date.now()
+  });
 };
 
 /**
@@ -104,17 +147,34 @@ export const shouldFetchNewData = (
   lastFetchLocation,
   currentLocation
 ) => {
-  const paramsChanged = !lastFetchParams || 
-    lastFetchParams.back !== currentParams.back || 
-    lastFetchParams.sightingType !== currentParams.sightingType;
-
-  const radiusChanged = lastFetchParams && 
-    Math.abs(lastFetchParams.radius - currentParams.radius) > 1;
-
-  if (paramsChanged || radiusChanged) {
+  // If no previous fetch, always fetch
+  if (!lastFetchParams) {
+    debug.debug('No previous fetch params, fetching data');
     return true;
   }
 
+  // Check if core parameters changed
+  const paramsChanged = 
+    lastFetchParams.back !== currentParams.back || 
+    lastFetchParams.species !== currentParams.species ||
+    lastFetchParams.country !== currentParams.country;
+
+  if (paramsChanged) {
+    debug.debug('Fetch parameters changed:', {
+      oldParams: lastFetchParams,
+      newParams: currentParams
+    });
+    return true;
+  }
+
+  // Check if radius changed significantly
+  const radiusChanged = Math.abs(lastFetchParams.radius - currentParams.radius) > 1;
+  if (radiusChanged) {
+    debug.debug('Viewport radius changed significantly');
+    return true;
+  }
+
+  // Check distance moved if we have previous location
   if (lastFetchLocation) {
     const distance = calculateDistance(
       lastFetchLocation.lat,
@@ -124,10 +184,10 @@ export const shouldFetchNewData = (
     );
     const sensitivityThreshold = currentParams.radius * 0.80;
     
-    debug.debug('Checking fetch threshold:', {
+    debug.debug('Checking movement threshold:', {
       distance,
       sensitivityThreshold,
-      shouldSkip: distance < sensitivityThreshold
+      shouldFetch: distance >= sensitivityThreshold
     });
     
     return distance >= sensitivityThreshold;
@@ -164,13 +224,8 @@ export const calculateDistance = (lat1, lon1, lat2, lon2) => {
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  const distance = R * c;
-  
-  debug.debug('Calculated distance:', { 
-    from: { lat1, lon1 }, 
-    to: { lat2, lon2 }, 
-    distance 
-  });
-  
-  return distance;
+  return R * c;
 };
+
+// Export cache for testing
+export const _countryCache = countryCache;

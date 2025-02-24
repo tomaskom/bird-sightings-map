@@ -15,8 +15,7 @@
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 *
 * Project: bird-sightings-map
-* Description: Utilities for generating map attribution text and links,
-* handling both internal and external links with appropriate HTML attributes.
+* Description: Constants for map configuration, URLs, and attribution links
 *
 * Dependencies: none
 */
@@ -37,29 +36,39 @@ export const DAYS_BACK_OPTIONS = [
     { value: "7", label: "7" },
     { value: "14", label: "14" },
     { value: "30", label: "30" }
-   ];
+];
    
-   /**
-   * Available sighting types for filtering bird observations
-   * @enum {string}
-   */
-   export const SIGHTING_TYPES = {
-    RECENT: 'recent',
+/**
+* Available sighting types for filtering bird observations
+* @enum {string}
+*/
+export const SPECIES_CODES = {
+    ALL: 'recent',
     RARE: 'rare'
-   };
+};
    
-   /**
-   * Default parameters for initializing the map view
-   * @type {Object}
-   * @property {string} sightingType - Type of sightings to display
-   * @property {string} back - Number of days to look back
-   * @property {number} zoom - Initial map zoom level
-   */
-   export const DEFAULT_MAP_PARAMS = {
-    sightingType: SIGHTING_TYPES.RECENT,
+/**
+* Default parameters for initializing the map view
+* @type {Object}
+* @property {number} lat - Default latitude
+* @property {number} lng - Default longitude
+* @property {string} species - Species code or special filter
+* @property {string} back - Number of days to look back
+* @property {number} zoom - Initial map zoom level
+*/
+export const DEFAULT_MAP_PARAMS = {
+    lat: 36.9741,  // Santa Cruz, CA lat and lng
+    lng: -122.0308,
+    species: SPECIES_CODES.ALL,
     back: "7",
     zoom: 12
-   };
+};
+
+/**
+* Distance in kilometers to buffer region boundaries
+* @type {number}
+*/
+export const REGION_BUFFER_DISTANCE = 25;
 
 /**
 * Configuration object defining attribution links and metadata
@@ -71,35 +80,34 @@ export const attributionLinks = {
     photos: { url: 'https://birdweather.com', text: 'BirdWeather' },
     author: { url: 'https://michellestuff.com', text: 'Michelle Tomasko', internal: true },
     license: { url: 'https://www.gnu.org/licenses/gpl-3.0.en.html', text: 'GPL v3' }
-   };
+};
    
-   /**
-   * Creates an HTML anchor tag string with appropriate attributes
-   * @param {string} url - The URL to link to
-   * @param {string} text - The visible text of the link
-   * @param {boolean} [isExternal=true] - Whether the link is external
-   * @returns {string} HTML anchor tag string
-   */
-   export const makeLink = (url, text, isExternal = true) => {
+/**
+* Creates an HTML anchor tag string with appropriate attributes
+* @param {string} url - The URL to link to
+* @param {string} text - The visible text of the link
+* @param {boolean} [isExternal=true] - Whether the link is external
+* @returns {string} HTML anchor tag string
+*/
+export const makeLink = (url, text, isExternal = true) => {
     const externalAttrs = 'target="_blank" rel="noopener noreferrer"';
     return `<a href="${url}"${isExternal ? ` ${externalAttrs}` : ''}>${text}</a>`;
-   };
+};
    
-   /**
-   * Generates the complete attribution string for the map
-   * Combines all attribution links with appropriate formatting
-   * @returns {string} Formatted HTML string containing all attributions
-   */
-   export const generateAttribution = () => Object.entries(attributionLinks)
+/**
+* Generates the complete attribution string for the map
+* Combines all attribution links with appropriate formatting
+* @returns {string} Formatted HTML string containing all attributions
+*/
+export const generateAttribution = () => Object.entries(attributionLinks)
     .map(([key, { url, text, internal = false }]) => {
-      const link = makeLink(url, text, !internal);
-      switch (key) {
-        case 'map': return `&copy; ${link} contributors`;
-        case 'data': return `Data: ${link}`;
-        case 'photos': return `Photos: ${link}`;
-        case 'author': return `&copy; ${link}`;
-        case 'license': return `Licensed under ${link}`;
-      }
+        const link = makeLink(url, text, !internal);
+        switch (key) {
+            case 'map': return `&copy; ${link} contributors`;
+            case 'data': return `Data: ${link}`;
+            case 'photos': return `Photos: ${link}`;
+            case 'author': return `&copy; ${link}`;
+            case 'license': return `Licensed under ${link}`;
+        }
     })
     .join(' | ');
-

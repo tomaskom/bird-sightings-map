@@ -21,31 +21,23 @@
  * 
  * Key Features:
  * - Supports both direct URL manipulation and iframe message passing
- * - Handles map coordinates, zoom level, time range, and sighting type filters
+ * - Handles map coordinates, zoom level, time range, and species filters
  * - Includes fallback mechanisms and timeout handling for iframe communicationDescription: UI notification components for map interactions
  * 
  * Dependencies: same as BirdMap.jsx
  */
 
 import { debug } from './debug';
+import { DEFAULT_MAP_PARAMS } from './mapconstants';
 
 /**
  * Gets map parameters from URL or parent frame
- * @returns {Promise<Object>} Map parameters (lat, lng, zoom, back, type)
+ * @returns {Promise<Object>} Map parameters (lat, lng, zoom, back, species)
  */
 export const getMapParamsFromUrl = () => {
   return new Promise((resolve) => {
     // Check if we're in an iframe
     const isInIframe = window !== window.parent;
-
-    // Santa Cruz coordinates and default view settings
-    const defaultParams = {
-      lat: 36.9741,
-      lng: -122.0308,
-      zoom: 12,
-      back: '7',
-      sightingType: 'recent'
-    };
 
     // Handle standalone mode
     if (!isInIframe) {
@@ -53,11 +45,11 @@ export const getMapParamsFromUrl = () => {
         const params = new URLSearchParams(window.location.search);
         debug.debug('Parsing URL parameters directly:', Object.fromEntries(params));
         resolve({
-          lat: parseFloat(params.get('lat')) || defaultParams.lat,
-          lng: parseFloat(params.get('lng')) || defaultParams.lng,
-          zoom: parseInt(params.get('zoom')) || defaultParams.zoom,
-          back: params.get('back') || defaultParams.back,
-          sightingType: params.get('type') || defaultParams.sightingType
+          lat: parseFloat(params.get('lat')) || DEFAULT_MAP_PARAMS.lat,
+          lng: parseFloat(params.get('lng')) || DEFAULT_MAP_PARAMS.lng,
+          zoom: parseInt(params.get('zoom')) || DEFAULT_MAP_PARAMS.zoom,
+          back: params.get('back') || DEFAULT_MAP_PARAMS.back,
+          species: params.get('species') || DEFAULT_MAP_PARAMS.species
         });
       } catch(error) {
         debug.error('Error parsing URL parameters:', error);
@@ -83,7 +75,7 @@ export const getMapParamsFromUrl = () => {
             lng: parseFloat(params.get('lng')) || defaultParams.lng,
             zoom: parseInt(params.get('zoom')) || defaultParams.zoom,
             back: params.get('back') || defaultParams.back,
-            sightingType: params.get('type') || defaultParams.sightingType
+            species: params.get('species') || defaultParams.species
           });
         } catch(error) {
           debug.error('Error parsing URL parameters from iframe:', error);
@@ -109,7 +101,7 @@ export const getMapParamsFromUrl = () => {
 
 /**
  * Updates URL parameters in browser or notifies parent frame
- * @param {Object} params Parameters to update (lat, lng, zoom, back, type)
+ * @param {Object} params Parameters to update (lat, lng, zoom, back, species)
  */
 export const updateUrlParams = (params) => {
   try {
