@@ -22,7 +22,7 @@
  * Key Features:
  * - Supports both direct URL manipulation and iframe message passing
  * - Handles map coordinates, zoom level, time range, and species filters
- * - Includes fallback mechanisms and timeout handling for iframe communicationDescription: UI notification components for map interactions
+ * - Includes fallback mechanisms and timeout handling for iframe communication
  * 
  * Dependencies: same as BirdMap.jsx
  */
@@ -53,7 +53,7 @@ export const getMapParamsFromUrl = () => {
         });
       } catch(error) {
         debug.error('Error parsing URL parameters:', error);
-        resolve(defaultParams);
+        resolve(DEFAULT_MAP_PARAMS);
       }
       return;
     }
@@ -71,15 +71,15 @@ export const getMapParamsFromUrl = () => {
           const params = new URLSearchParams(event.data);
           debug.debug('Parsed iframe params:', Object.fromEntries(params));
           resolve({
-            lat: parseFloat(params.get('lat')) || defaultParams.lat,
-            lng: parseFloat(params.get('lng')) || defaultParams.lng,
-            zoom: parseInt(params.get('zoom')) || defaultParams.zoom,
-            back: params.get('back') || defaultParams.back,
-            species: params.get('species') || defaultParams.species
+            lat: parseFloat(params.get('lat')) || DEFAULT_MAP_PARAMS.lat,
+            lng: parseFloat(params.get('lng')) || DEFAULT_MAP_PARAMS.lng,
+            zoom: parseInt(params.get('zoom')) || DEFAULT_MAP_PARAMS.zoom,
+            back: params.get('back') || DEFAULT_MAP_PARAMS.back,
+            species: params.get('species') || DEFAULT_MAP_PARAMS.species
           });
         } catch(error) {
           debug.error('Error parsing URL parameters from iframe:', error);
-          resolve(defaultParams);
+          resolve(DEFAULT_MAP_PARAMS);
         }
       }
     };
@@ -94,7 +94,7 @@ export const getMapParamsFromUrl = () => {
       isResolved = true;
       debug.debug('Timeout reached, using defaults');
       window.removeEventListener('message', handleMessage);
-      resolve(defaultParams);
+      resolve(DEFAULT_MAP_PARAMS);
     }, 500);
   });
 };
