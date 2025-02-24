@@ -1,21 +1,24 @@
 # Bird Sightings Map
 
-An interactive web application that displays bird sightings on a map using data from eBird. Users can explore both recent and rare bird observations in different locations, search for specific areas, and view detailed information about bird sightings including photos.
+An interactive web application that displays bird sightings on a map using data from eBird. Users can explore both recent and rare bird observations in different locations, search for specific areas, filter species, and view detailed information about bird sightings including photos.
 
 ## Features
 
 - Interactive map interface using React-Leaflet
-- Two viewing modes:
-  - Recent bird sightings
+- Viewing modes:
+  - All bird sightings
   - Rare/notable bird sightings
+  - Species-specific filtering
 - Configurable time window (1, 3, 7, 14, or 30 days)
 - Location search functionality using OpenStreetMap's Nominatim service
 - Current location detection
 - Real-time bird sighting data from eBird API
 - Bird photos integration from BirdWeather
+- Region-specific species lists that update as you navigate
 - Clustered markers for multiple bird sightings at the same location
 - Detailed popup information for each sighting including:
   - Species common name
+  - Scientific name
   - Bird photos (when available)
   - Observation date
   - Links to eBird checklists
@@ -78,52 +81,62 @@ npm run dev
 ## Project Structure
 
 ```
-├── client/                     # Frontend
+├── client/                      # Frontend
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── BirdMap.jsx    # Main map component
-│   │   │   ├── popups/        
-│   │   │   │   └── BirdPopups.jsx
-│   │   │   ├── location/      
+│   │   │   ├── BirdMap.jsx      # Main map component
+│   │   │   ├── location/        
 │   │   │   │   └── LocationControls.jsx
-│   │   │   └── ui/           
-│   │   │       └── Notifications.jsx
-│   │   ├── styles/            # Styling configurations
-│   │   │   ├── animations.js
+│   │   │   ├── popups/          
+│   │   │   │   └── BirdPopups.jsx
+│   │   │   └── ui/              
+│   │   │       ├── Notifications.jsx
+│   │   │       └── SpeciesSearch.jsx   # Species search box and dropdown list
+│   │   ├── data/                # Data files for taxonomy
+│   │   │   └── ebird_taxonomy.csv  # eBird taxonomy data (Oct 2024)
+│   │   ├── scripts/             # Utility scripts
+│   │   │   ├── build-debug.js   # build logging utilities
+│   │   │   └── buildTaxonomy.js  # Script to convert eBird taxonomy CSV to JSON
+│   │   ├── styles/              # Styling configurations
 │   │   │   ├── colors.js
 │   │   │   ├── controls.js
-│   │   │   ├── layout.js
-│   │   │   └── typography.js
-│   │   ├── utils/             # Utility functions
-│   │   │   ├── dataUtils.js   # Data fetching and processing
-│   │   │   ├── debug.js       # Client debug logging utilities
-│   │   │   ├── mapConstants.js 
-│   │   │   ├── mapUtils.js    
-│   │   │   └── urlUtils.js    # URL parameter handling
+│   │   │   └── layout.js
+│   │   ├── utils/               # Utility functions
+│   │   │   ├── dataUtils.js     # Data fetching and processing
+│   │   │   ├── debug.js         # Client debug logging utilities
+│   │   │   ├── mapconstants.js  # Map constants and configuration
+│   │   │   ├── mapUtils.js      # Map utility functions
+│   │   │   ├── taxonomyData.js  # Processed taxonomy data
+│   │   │   ├── taxonomyUtils.js # Species taxonomy handling
+│   │   │   ├── taxonomyTypes.ts # TypeScript interfaces for taxonomy
+│   │   │   └── urlUtils.js      # URL parameter handling
 │   │   ├── App.css
 │   │   ├── App.jsx
 │   │   ├── index.css
 │   │   └── main.jsx
-│   ├── public/                 # Favicons
-│   ├── .env                    # Client environment variables
+│   ├── public/                  # Favicons
+│   ├── .env                     # Client environment variables
 │   └── ...
-├── server/                     # Backend
-│   ├── server.js
-│   ├── .env                    # Server environment variables
+├── server/                      # Backend
+│   ├── server.js                # Express server with API endpoints
+│   ├── .env                     # Server environment variables
 │   ├── utils/
-│   │   └── debug.js            # Server debug logging utilities
+│   │   └── debug.js             # Server debug logging utilities
 │   └── ...
 └── ...
 ```
+
 ## Server Implementation
 
 The server.js server provides:
 
 - Static file serving for the React application
 - Proxy endpoints for eBird API requests
+- Geocoding services (forward and reverse)
+- Region-specific species list lookups
 - CORS support for development
 - Error handling and logging
-- Support for both recent and rare bird sightings
+- Support for both common and rare bird sightings
 - Configurable time window for sightings
 
 ### API Endpoints
@@ -135,12 +148,46 @@ Parameters:
 - `lat` (required): Latitude of the search center
 - `lng` (required): Longitude of the search center
 - `dist` (optional): Search radius in kilometers
-- `type` (optional): Sighting type ('recent' or 'rare')
+- `species` (optional): Species code or special filter ('recent' or 'rare')
 - `back` (optional): Number of days to look back
 
 Example request:
 ```bash
-GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&type=recent&back=7
+GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&species=recent&back=7
+```
+
+#### GET /api/region-species/:regionCode
+Fetches species list for a specific eBird region.
+
+Parameters:
+- `regionCode` (required): eBird region code (e.g., "US-CA")
+
+Example request:
+```bash
+GET /api/region-species/US-CA
+```
+
+#### GET /api/forward-geocode
+Performs forward geocoding to find locations by name.
+
+Parameters:
+- `q` (required): Location query string
+
+Example request:
+```bash
+GET /api/forward-geocode?q=Santa%20Cruz,%20CA
+```
+
+#### GET /api/reverse-geocode
+Performs reverse geocoding to get location details from coordinates.
+
+Parameters:
+- `lat` (required): Latitude
+- `lon` (required): Longitude
+
+Example request:
+```bash
+GET /api/reverse-geocode?lat=36.9741&lon=-122.0308
 ```
 
 ## Dependencies
@@ -157,71 +204,78 @@ GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&type=recent&back=7
 - cors
 - node-fetch
 - dotenv
+- express-rate-limit
 
 ## Component Structure
 
 ### Main Components
 - `BirdMap`: Core component handling map interface and state management
 - `BirdMarker`: Optimized marker component for bird sighting locations
+- `MapEvents`: Handles map movement and viewport changes
+- `SpeciesSearch`: Dropdown component for filtering bird species
 
 ### Popup Components
 - `BirdPopups.jsx`:
   - `BirdPopupContent`: Memoized component for sighting information display
   - `PopupInteractionHandler`: Manages map interactions during popup display
-  - Includes photo modal and observation details components
 
 ### Location Components
 - `LocationControls.jsx`:
   - `LocationControl`: Handles location detection and map navigation
-  - Custom control button implementation
 
 ### UI Components
 - `Notifications.jsx`:
   - `FadeNotification`: Temporary notification display
   - `LoadingOverlay`: Loading state indicator
+- `SpeciesSearch.jsx`: Species filtering dropdown with search functionality
 
 ### Utility Modules
-- `mapUtils.js`: Map functionality helpers (icons, calculations, etc.)
+- `mapUtils.js`: Map functionality helpers (icons, calculations, caching)
 - `dataUtils.js`: Data fetching and processing utilities
-- `urlUtils.js`: URL parameter management
-- `debug.js`: Debugging and logging utilities
+- `urlUtils.js`: URL parameter management for direct links and iframe embedding
+- `taxonomyUtils.js`: Species list management and filtering
+- `taxonomyData.js`: Contains processed bird taxonomy data
+- `taxonomyTypes.ts`: TypeScript interfaces for taxonomy structures
+- `debug.js`: Configurable debugging and logging utilities
 
 ### Style Modules
-- `animations.js`: Spinner animation for loading data
-- `colors.js`: Color schemes
-- `controls.js`: Standard styles for controls
-- `layout.js`: Standard stlyes for layout
-- `typography.js`: Standard typography styles for popups
+- `colors.js`: Color schemes for UI components
+- `controls.js`: Styles for buttons, inputs, and interactive elements
+- `layout.js`: Layout styles for containers, popups, and notifications
 
 ## API Integration
 
 The application integrates with four external APIs:
-1. eBird API (via backend proxy) for bird sighting data
-2. OpenStreetMap's Nominatim API for location search
+1. eBird API (via backend proxy) for bird sighting data and species lists
+2. OpenStreetMap's Nominatim API for location search and reverse geocoding
 3. BirdWeather API for bird photos
 4. OpenStreetMap for map tiles
 
-### Data Format
+## Taxonomy Data
 
-The application expects bird sighting data in the following format:
+The application uses the eBird Taxonomy dataset for bird species information:
 
-```javascript
-{
-  lat: number,
-  lng: number,
-  birds: [
-    {
-      comName: string,
-      sciName: string,
-      obsDt: string,
-      obsValid: boolean,
-      subIds: string[],
-      thumbnailUrl?: string,
-      fullPhotoUrl?: string
-    }
-  ]
-}
-```
+- **Data Source**: [eBird Taxonomy](https://science.ebird.org/en/use-ebird-data/the-ebird-taxonomy)
+- **Last Updated**: October 2024
+- **Processing**: A script converts the CSV taxonomy file into a JSON format used by the application
+- **Data Structure**: Each taxonomy entry contains:
+  - `speciesCode`: Unique identifier for the species in eBird
+  - `commonName`: English common name for display
+  - `scientificName`: Latin scientific name
+  - `taxonOrder`: Numeric value for sorting species in taxonomic order
+  - `category`: Type of entry (species, hybrid, etc.)
+
+The taxonomy data provides the foundation for species filtering, display, and organization throughout the application. It enables features like the species search dropdown and proper sorting of bird lists in taxonomic order.
+
+### Data Flow
+
+1. User navigates the map or searches for a location
+2. Application detects the current region (country/state)
+3. Region-specific species lists are fetched and cached
+4. Bird sightings are retrieved based on viewport location and filters
+5. Sightings are grouped by location and displayed as markers
+6. Photos are fetched for visible species
+7. URL parameters are updated to allow direct linking
 
 ## Performance Optimizations
 
@@ -229,10 +283,11 @@ The application expects bird sighting data in the following format:
 - Clustered markers for locations with multiple sightings
 - Lazy loading of popup content and photos
 - Debounced map movement handlers
+- Species list caching by region
+- Country bounds caching for faster region detection
 - Dynamic search radius based on viewport size
-- Optimized marker rendering using React-Leaflet
-- Server-side request logging for debugging
-- Error handling with detailed logging
+- Rate limiting for geocoding API requests
+- Server-side error handling with detailed logging
 
 ## Contributing
 
@@ -255,5 +310,5 @@ You should have received a copy of the GNU General Public License along with thi
 
 - Data provided by [eBird](https://ebird.org)
 - Map tiles from [OpenStreetMap](https://www.openstreetmap.org)
-- Icons from Leaflet's default icon set
 - Photos provided by [BirdWeather](https://birdweather.com)
+- Leaflet mapping library and plugins
