@@ -35,8 +35,9 @@ import { COLORS } from '../../styles/colors';
 * @component
 * @param {Object} props
 * @param {Array} props.birds - Array of bird sighting data
+* @param {Set<string>} props.notableSpeciesCodes - Set of species codes that are notable/rare
 */
-export const BirdPopupContent = memo(({ birds }) => {
+export const BirdPopupContent = memo(({ birds, notableSpeciesCodes = new Set() }) => {
  const [selectedPhoto, setSelectedPhoto] = useState(null);
  debug.debug('Rendering popup content for birds:', birds.length);
 
@@ -54,6 +55,7 @@ export const BirdPopupContent = memo(({ birds }) => {
          <BirdEntry
            key={`${bird.speciesCode}-${birdIndex}`}
            bird={bird}
+           isNotable={bird.speciesCode && notableSpeciesCodes.has(bird.speciesCode)}
            isLast={birdIndex === birds.length - 1}
            onPhotoClick={() => setSelectedPhoto(bird.fullPhotoUrl)}
          />
@@ -91,14 +93,23 @@ const PopupHeader = ({ birdCount }) => (
 * Individual bird entry component
 * @component
 */
-const BirdEntry = ({ bird, isLast, onPhotoClick }) => (
+const BirdEntry = ({ bird, isNotable, isLast, onPhotoClick }) => (
  <div
    style={{
      borderBottom: isLast ? 'none' : '1px solid' + COLORS.border,
      ...POPUP_LAYOUT_STYLES.birdEntry
    }}
  >
-   <h4 style={TYPOGRAPHY_STYLES.birdName}>{bird.comName}</h4>
+   <div>
+     <h4 style={{ ...TYPOGRAPHY_STYLES.birdName, marginBottom: '0.25rem' }}>{bird.comName}</h4>
+     {isNotable && (
+       <div style={{ marginTop: '-0.1rem', marginBottom: '0.25rem' }}>
+         <span style={POPUP_LAYOUT_STYLES.notableBadge}>
+           notable
+         </span>
+       </div>
+     )}
+   </div>
    {bird.thumbnailUrl && (
      <BirdThumbnail
        bird={bird}

@@ -75,7 +75,7 @@ initializeMapIcons();
  * @param {Object} props.location - Location data with coordinates and birds
  * @param {L.Icon} props.icon - Leaflet icon to display
  */
-const BirdMarker = memo(({ location, icon }) => {
+const BirdMarker = memo(({ location, icon, notableSpeciesCodes }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
 
   const eventHandlers = useCallback({
@@ -95,8 +95,8 @@ const BirdMarker = memo(({ location, icon }) => {
       icon={icon}
       eventHandlers={eventHandlers}
     >
-      <Popup>
-        {isPopupOpen && <BirdPopupContent birds={location.birds} />}
+      <Popup maxWidth={250}>
+        {isPopupOpen && <BirdPopupContent birds={location.birds} notableSpeciesCodes={notableSpeciesCodes} />}
       </Popup>
     </Marker>
   );
@@ -608,6 +608,7 @@ const BirdMap = () => {
                 key={`${location.lat}-${location.lng}-${index}`}
                 location={location}
                 icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+                notableSpeciesCodes={notableSpeciesCodes}
               />
             ))}
             {showNotification && <FadeNotification />}
