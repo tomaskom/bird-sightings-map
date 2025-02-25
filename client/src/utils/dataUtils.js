@@ -104,10 +104,9 @@ export const fetchBirdPhotos = async (uniqueSpecies) => {
 /**
  * Processes raw bird sightings data and groups it by location
  * @param {Object[]} sightings - Array of raw bird sighting records
- * @param {Object} speciesPhotos - Mapping of species to their photo URLs
  * @returns {Object[]} Array of location objects with grouped bird sightings
  */
-export const processBirdSightings = (sightings, speciesPhotos) => {
+export const processBirdSightings = async (sightings) => {
   const validSightings = sightings.filter(sighting => sighting.obsValid === true);
   const groupedByLocation = _.groupBy(validSightings, sighting => 
     `${sighting.lat},${sighting.lng}`
@@ -118,6 +117,13 @@ export const processBirdSightings = (sightings, speciesPhotos) => {
     valid: validSightings.length,
     locations: Object.keys(groupedByLocation).length
   });
+
+  // Extract unique species for photo fetching
+  const uniqueSpecies = [...new Set(validSightings
+    .map(sighting => `${sighting.sciName}_${sighting.comName}`))];
+  
+  // Fetch photos for all species in one batch
+  const speciesPhotos = await fetchBirdPhotos(uniqueSpecies);
 
   return Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
     const [lat, lng] = locationKey.split(',').map(Number);
