@@ -32,7 +32,7 @@ import { COLORS } from '../styles/colors';
 import { debug } from '../utils/debug';
 import {
   DefaultIcon,
-  MultipleIcon,
+  createMultiBirdIcon,
   initializeMapIcons,
   calculateViewportRadius,
   shouldFetchNewData,
@@ -114,7 +114,10 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect,
       icon={icon}
       eventHandlers={eventHandlers}
     >
-      <Popup maxWidth={250}>
+      <Popup 
+        maxWidth={250}
+        closeOnClick={true}
+      >
         {isPopupOpen && (
           <BirdPopupContent 
             birds={location.birds} 
@@ -628,7 +631,7 @@ const BirdMap = () => {
               <BirdMarker
                 key={`${location.lat}-${location.lng}-${index}`}
                 location={location}
-                icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
+                icon={location.birds.length > 1 ? createMultiBirdIcon(location.birds.length) : DefaultIcon}
                 notableSpeciesCodes={notableSpeciesCodes}
                 onSpeciesSelect={handleSpeciesSelect}
                 mapRef={mapRef}

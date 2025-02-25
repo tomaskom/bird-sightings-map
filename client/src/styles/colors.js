@@ -70,6 +70,13 @@ export const COLORS = {
     // Badge colors
     badges: {
         onMap: '#FD7014',
-        notable: '#BE123C'
+        notable: '#BE123C',
+        countBadge: '#2A81CB'
+    },
+    
+    // Map marker colors
+    markers: {
+        defaultBlue: '#2A81CB',
+        iconShadow: 'rgba(0, 0, 0, 0.4)'
     }
 };
