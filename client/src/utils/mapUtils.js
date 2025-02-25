@@ -25,6 +25,8 @@ import L from 'leaflet';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 import { debug } from './debug';
+import { COLORS } from '../styles/colors';
+import { MARKER_STYLES } from '../styles/layout';
 
 /**
  * Default Leaflet icon configuration for single bird sightings
@@ -37,16 +39,47 @@ export const DefaultIcon = L.icon({
   iconAnchor: [12, 41]
 });
 
+// Cache for bird count icons to prevent recreation on every render
+const birdIconCache = new Map();
+
 /**
- * Custom div icon for locations with multiple bird sightings
+ * Creates a custom div icon for locations with multiple bird sightings
+ * @param {number} birdCount - Number of bird sightings at this location
+ * @returns {L.DivIcon} Custom Leaflet divIcon with bird count badge
+ */
+export const createMultiBirdIcon = (birdCount) => {
+  // For large numbers (>99), show "99+"
+  const displayCount = birdCount > 99 ? '99+' : birdCount;
+  
+  // Use cached version if available to improve performance
+  const cacheKey = String(displayCount);
+  if (birdIconCache.has(cacheKey)) {
+    return birdIconCache.get(cacheKey);
+  }
+  
+  // Create simpler icon - using standard leaflet icon with a CSS class-based badge
+  // This is more performant than complex nested divs and inline styles
+  const newIcon = L.divIcon({
+    className: `multi-bird-icon count-${displayCount}`,
+    html: `<div class="pin-container">
+             <div class="pin-icon"></div>
+             <div class="count-badge">${displayCount}</div>
+           </div>`,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41]
+  });
+  
+  // Cache for future use
+  birdIconCache.set(cacheKey, newIcon);
+  return newIcon;
+};
+
+/**
+ * Legacy variable kept for backward compatibility
+ * @deprecated Use createMultiBirdIcon instead
  * @type {L.DivIcon}
  */
-export const MultipleIcon = L.divIcon({
-  className: 'custom-div-icon',
-  html: `<div style="background-color: #3B82F6; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white;">+</div>`,
-  iconSize: [30, 30],
-  iconAnchor: [15, 15]
-});
+export const MultipleIcon = createMultiBirdIcon('+');
 
 /**
  * Sets the default marker icon for Leaflet

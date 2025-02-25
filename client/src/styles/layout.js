@@ -214,6 +214,44 @@ export const NOTIFICATION_LAYOUT_STYLES = {
 };
 
 /**
+ * Map marker styles
+ * @constant
+ */
+export const MARKER_STYLES = {
+    // Bird marker container
+    markerContainer: {
+        position: 'relative'
+    },
+    // Standard pin icon
+    pinIcon: {
+        width: '25px',
+        height: '41px',
+        backgroundSize: '25px 41px',
+        backgroundRepeat: 'no-repeat'
+    },
+    // Count badge
+    countBadge: {
+        position: 'absolute',
+        top: '-3px',
+        right: '-3px',
+        backgroundColor: COLORS.badges.countBadge,
+        color: COLORS.text.light,
+        borderRadius: '50%',
+        width: '14px',
+        height: '14px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px solid white',
+        fontSize: '10px',
+        lineHeight: 1,
+        paddingBottom: '1px',
+        fontWeight: 'bold',
+        boxShadow: `0 1px 3px ${COLORS.markers.iconShadow}`
+    }
+};
+
+/**
  * CSS keyframe animations
  * @constant
  */
