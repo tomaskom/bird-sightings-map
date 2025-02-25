@@ -45,25 +45,26 @@ const birdIconCache = new Map();
 /**
  * Creates a custom div icon for locations with multiple bird sightings
  * @param {number} birdCount - Number of bird sightings at this location
- * @returns {L.DivIcon} Custom Leaflet divIcon with bird count badge
+ * @param {boolean} hasNotableBirds - Whether the location has notable/rare birds
+ * @returns {L.DivIcon} Custom Leaflet divIcon with count badge and optional notable indicator
  */
-export const createMultiBirdIcon = (birdCount) => {
+export const createMultiBirdIcon = (birdCount, hasNotableBirds = false) => {
   // For large numbers (>99), show "99+"
   const displayCount = birdCount > 99 ? '99+' : birdCount;
   
   // Use cached version if available to improve performance
-  const cacheKey = String(displayCount);
+  const cacheKey = `${displayCount}-${hasNotableBirds ? 'notable' : 'normal'}`;
   if (birdIconCache.has(cacheKey)) {
     return birdIconCache.get(cacheKey);
   }
   
-  // Create simpler icon - using standard leaflet icon with a CSS class-based badge
-  // This is more performant than complex nested divs and inline styles
+  // Create icon with badges
   const newIcon = L.divIcon({
     className: `multi-bird-icon count-${displayCount}`,
     html: `<div class="pin-container">
              <div class="pin-icon"></div>
              <div class="count-badge">${displayCount}</div>
+             ${hasNotableBirds ? '<div class="notable-badge">!</div>' : ''}
            </div>`,
     iconSize: [25, 41],
     iconAnchor: [12, 41]
