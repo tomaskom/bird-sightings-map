@@ -210,10 +210,54 @@ export const SPECIES_SEARCH_STYLES = {
         padding: BASE_STYLES.padding.default,
         cursor: BASE_STYLES.interactive.cursor,
         borderBottom: BASE_STYLES.border,
-        '&:last-child': {
+        ':lastChild': {
             borderBottom: 'none'
         },
         '&:hover': BASE_STYLES.hoverBackground
+    },
+    // Styles for species visible on the map
+    visibleSpeciesOption: {
+        padding: BASE_STYLES.padding.default,
+        cursor: BASE_STYLES.interactive.cursor,
+        borderBottom: BASE_STYLES.border,
+        backgroundColor: COLORS.speciesSearch.visibleSpeciesBackground,
+        ':lastChild': {
+            borderBottom: 'none'
+        },
+        '&:hover': BASE_STYLES.hoverBackground
+    },
+    // Section divider for visible species
+    visibleSpeciesHeader: {
+        padding: '0.5rem 1rem',
+        backgroundColor: COLORS.speciesSearch.visibleSpeciesHeader,
+        color: COLORS.primary,
+        fontSize: '0.75rem',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        borderBottom: BASE_STYLES.border
+    },
+    // Section divider for non-visible species
+    otherSpeciesHeader: {
+        padding: '0.5rem 1rem',
+        backgroundColor: COLORS.background,
+        color: COLORS.text.secondary,
+        fontSize: '0.75rem',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        borderBottom: BASE_STYLES.border
+    },
+    // Badge indicator for visible species
+    visibleBadge: {
+        marginLeft: '8px',
+        backgroundColor: COLORS.primary,
+        color: COLORS.text.light,
+        fontSize: '0.6rem',
+        padding: '2px 6px',
+        borderRadius: '10px',
+        display: 'inline-block',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        lineHeight: 1
     },
     commonName: {
         color: COLORS.text.primary,
