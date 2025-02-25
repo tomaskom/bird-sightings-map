@@ -249,7 +249,20 @@ export const SPECIES_SEARCH_STYLES = {
     // Badge indicator for visible species
     visibleBadge: {
         marginLeft: '8px',
-        backgroundColor: COLORS.primary,
+        backgroundColor: COLORS.badges.onMap,
+        color: COLORS.text.light,
+        fontSize: '0.6rem',
+        padding: '2px 6px',
+        borderRadius: '10px',
+        display: 'inline-block',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        lineHeight: 1
+    },
+    // Badge indicator for notable/rare species
+    notableBadge: {
+        marginLeft: '8px',
+        backgroundColor: COLORS.badges.notable,
         color: COLORS.text.light,
         fontSize: '0.6rem',
         padding: '2px 6px',
