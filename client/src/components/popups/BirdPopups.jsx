@@ -36,8 +36,9 @@ import { COLORS } from '../../styles/colors';
 * @param {Object} props
 * @param {Array} props.birds - Array of bird sighting data
 * @param {Set<string>} props.notableSpeciesCodes - Set of species codes that are notable/rare
+* @param {Function} props.onBirdSelect - Callback when a bird name is clicked for filtering
 */
-export const BirdPopupContent = memo(({ birds, notableSpeciesCodes = new Set() }) => {
+export const BirdPopupContent = memo(({ birds, notableSpeciesCodes = new Set(), onBirdSelect }) => {
  const [selectedPhoto, setSelectedPhoto] = useState(null);
  debug.debug('Rendering popup content for birds:', birds.length);
 
@@ -58,6 +59,7 @@ export const BirdPopupContent = memo(({ birds, notableSpeciesCodes = new Set() }
            isNotable={bird.speciesCode && notableSpeciesCodes.has(bird.speciesCode)}
            isLast={birdIndex === birds.length - 1}
            onPhotoClick={() => setSelectedPhoto(bird.fullPhotoUrl)}
+           onNameClick={() => onBirdSelect && onBirdSelect(bird)}
          />
        ))}
      </div>
@@ -93,7 +95,7 @@ const PopupHeader = ({ birdCount }) => (
 * Individual bird entry component
 * @component
 */
-const BirdEntry = ({ bird, isNotable, isLast, onPhotoClick }) => (
+const BirdEntry = ({ bird, isNotable, isLast, onPhotoClick, onNameClick }) => (
  <div
    style={{
      borderBottom: isLast ? 'none' : '1px solid' + COLORS.border,
@@ -101,7 +103,19 @@ const BirdEntry = ({ bird, isNotable, isLast, onPhotoClick }) => (
    }}
  >
    <div>
-     <h4 style={{ ...TYPOGRAPHY_STYLES.birdName, marginBottom: '0.25rem' }}>{bird.comName}</h4>
+     <h4 
+       style={{ 
+         ...TYPOGRAPHY_STYLES.birdName, 
+         marginBottom: '0.25rem',
+         textDecoration: 'underline',
+         cursor: 'pointer',
+         color: COLORS.link
+       }}
+       onClick={onNameClick}
+       title="Click to filter for this species"
+     >
+       {bird.comName}
+     </h4>
      {isNotable && (
        <div style={{ marginTop: '-0.1rem', marginBottom: '0.25rem' }}>
          <span style={POPUP_LAYOUT_STYLES.notableBadge}>

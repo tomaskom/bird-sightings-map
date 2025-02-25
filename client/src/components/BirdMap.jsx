@@ -75,8 +75,9 @@ initializeMapIcons();
  * @param {Object} props.location - Location data with coordinates and birds
  * @param {L.Icon} props.icon - Leaflet icon to display
  */
-const BirdMarker = memo(({ location, icon, notableSpeciesCodes }) => {
+const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect, mapRef }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const markerRef = useRef();
 
   const eventHandlers = useCallback({
     popupopen: () => {
@@ -89,14 +90,38 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes }) => {
     },
   }, [location.lat, location.lng]);
 
+  const handleBirdSelect = useCallback((bird) => {
+    if (markerRef.current && mapRef) {
+      // Close the popup
+      markerRef.current.closePopup();
+      
+      // Format selection data like the species dropdown does
+      const selection = {
+        speciesCode: bird.speciesCode,
+        commonName: bird.comName,
+        scientificName: bird.sciName
+      };
+      
+      // Trigger the species selection
+      onSpeciesSelect(selection);
+    }
+  }, [onSpeciesSelect, mapRef]);
+
   return (
     <Marker
+      ref={markerRef}
       position={[location.lat, location.lng]}
       icon={icon}
       eventHandlers={eventHandlers}
     >
       <Popup maxWidth={250}>
-        {isPopupOpen && <BirdPopupContent birds={location.birds} notableSpeciesCodes={notableSpeciesCodes} />}
+        {isPopupOpen && (
+          <BirdPopupContent 
+            birds={location.birds} 
+            notableSpeciesCodes={notableSpeciesCodes}
+            onBirdSelect={handleBirdSelect}
+          />
+        )}
       </Popup>
     </Marker>
   );
@@ -609,6 +634,8 @@ const BirdMap = () => {
                 location={location}
                 icon={location.birds.length > 1 ? MultipleIcon : DefaultIcon}
                 notableSpeciesCodes={notableSpeciesCodes}
+                onSpeciesSelect={handleSpeciesSelect}
+                mapRef={mapRef}
               />
             ))}
             {showNotification && <FadeNotification />}
