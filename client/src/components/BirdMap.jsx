@@ -424,12 +424,8 @@ const BirdMap = () => {
       }
 
       const data = await response.json();
-      const uniqueSpecies = [...new Set(data
-        .filter(sighting => sighting.obsValid === true)
-        .map(sighting => `${sighting.sciName}_${sighting.comName}`))];
-
-      const speciesPhotos = await fetchBirdPhotos(uniqueSpecies);
-      const processedSightings = processBirdSightings(data, speciesPhotos);
+      // Process sightings and fetch photos in one step
+      const processedSightings = await processBirdSightings(data);
 
       // Extract species codes from sightings to track visible species
       const currentVisibleSpecies = new Set();
