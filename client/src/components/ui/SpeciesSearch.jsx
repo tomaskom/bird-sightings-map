@@ -32,7 +32,8 @@ const SpeciesSearch = ({
     regionSpecies = [],
     currentCountry,
     speciesLoading,
-    visibleSpeciesCodes = new Set()
+    visibleSpeciesCodes = new Set(),
+    notableSpeciesCodes = new Set()
 }) => {
     debug.debug('SpeciesSearch render:', {
         speciesCount: regionSpecies?.length,
@@ -319,6 +320,11 @@ const SpeciesSearch = ({
                                                                     <span style={SPECIES_SEARCH_STYLES.visibleBadge}>
                                                                         on map
                                                                     </span>
+                                                                    {notableSpeciesCodes.has(species.speciesCode) && (
+                                                                        <span style={SPECIES_SEARCH_STYLES.notableBadge}>
+                                                                            notable
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                                 <div style={SPECIES_SEARCH_STYLES.scientificName}>
                                                                     {species.scientificName}

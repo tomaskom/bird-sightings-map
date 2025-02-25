@@ -43,7 +43,7 @@ import {
   getRegionForCoordinates
 } from '../utils/regionUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
-import { fetchBirdPhotos, processBirdSightings, buildApiUrl, fetchLocationDetails, searchLocation } from '../utils/dataUtils';
+import { fetchBirdPhotos, processBirdSightings, buildApiUrl, fetchLocationDetails, searchLocation, fetchNotableBirds } from '../utils/dataUtils';
 import {
   filterSpeciesByName,
   fetchRegionSpecies,
@@ -159,6 +159,7 @@ const BirdMap = () => {
   const [showNotification, setShowNotification] = useState(true);
   const [isMapAnimating, setIsMapAnimating] = useState(false);
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
+  const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
   const inputRef = useRef(null);
 
   /**
@@ -385,6 +386,12 @@ const BirdMap = () => {
         back
       });
 
+      // Fetch notable birds concurrently if we're not already looking at rare birds
+      let notableBirdsPromise;
+      if (selectedSpecies !== SPECIES_CODES.RARE) {
+        notableBirdsPromise = fetchNotableBirds(lat, lng, currentRadius, back);
+      }
+
       const response = await fetch(apiUrl);
 
       if (!response.ok) {
@@ -414,7 +421,25 @@ const BirdMap = () => {
         sample: Array.from(currentVisibleSpecies).slice(0, 5)
       });
       
+      // Set the visible species codes first
       setVisibleSpeciesCodes(currentVisibleSpecies);
+      
+      // Get and set notable species
+      let currentNotableSpecies;
+      if (selectedSpecies === SPECIES_CODES.RARE) {
+        // If we're looking at rare birds, all visible birds are notable
+        currentNotableSpecies = new Set([...currentVisibleSpecies]);
+      } else {
+        // Otherwise, use the results from our notable birds query
+        currentNotableSpecies = await notableBirdsPromise;
+      }
+      
+      debug.debug('Notable species identified:', {
+        count: currentNotableSpecies.size,
+        sample: Array.from(currentNotableSpecies).slice(0, 5)
+      });
+      
+      setNotableSpeciesCodes(currentNotableSpecies);
       setBirdSightings(processedSightings);
       setLastFetchLocation({ lat, lng });
       setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius, region: currentCountry });
@@ -507,6 +532,7 @@ const BirdMap = () => {
             allSpeciesCode={SPECIES_CODES.ALL}
             rareSpeciesCode={SPECIES_CODES.RARE}
             visibleSpeciesCodes={visibleSpeciesCodes}
+            notableSpeciesCodes={notableSpeciesCodes}
           />
 
           <div style={LAYOUT_STYLES.pullDown}>

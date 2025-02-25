@@ -23,6 +23,53 @@
 
 import _ from 'lodash';
 import { debug } from './debug';
+import { SPECIES_CODES } from './mapconstants';
+
+/**
+ * Fetches notable/rare birds for a given location
+ * @param {number} lat - Latitude 
+ * @param {number} lng - Longitude
+ * @param {number} radius - Search radius in kilometers
+ * @param {string} back - Days to look back
+ * @returns {Promise<Set<string>>} Set of notable species codes
+ */
+export const fetchNotableBirds = async (lat, lng, radius, back) => {
+  try {
+    const apiUrl = buildApiUrl({
+      lat,
+      lng, 
+      radius,
+      species: SPECIES_CODES.RARE,
+      back
+    });
+    
+    debug.debug('Fetching notable birds for location', { lat, lng, radius });
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const notableCodes = new Set();
+    
+    data.forEach(bird => {
+      if (bird.speciesCode && bird.obsValid) {
+        notableCodes.add(bird.speciesCode);
+      }
+    });
+    
+    debug.debug('Found notable species', { 
+      count: notableCodes.size, 
+      sample: Array.from(notableCodes).slice(0, 5) 
+    });
+    
+    return notableCodes;
+  } catch (error) {
+    debug.error('Error fetching notable birds:', error);
+    return new Set();
+  }
+};
 
 /**
  * Fetches bird photos from the BirdWeather API for given species

@@ -65,5 +65,11 @@ export const COLORS = {
     speciesSearch: {
         visibleSpeciesBackground: 'rgba(253, 112, 20, 0.1)',
         visibleSpeciesHeader: 'rgba(253, 112, 20, 0.15)'
+    },
+    
+    // Badge colors
+    badges: {
+        onMap: '#FD7014',
+        notable: '#BE123C'
     }
 };

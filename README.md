@@ -15,6 +15,10 @@ An interactive web application that displays bird sightings on a map using data 
 - Real-time bird sighting data from eBird API
 - Bird photos integration from BirdWeather
 - Region-specific species lists that update as you navigate
+- Enhanced species search with visual indicators:
+  - Birds visible on the current map are highlighted and sorted to the top
+  - Notable/rare birds are marked with badges for quick identification
+  - Search results organized into "Birds on map" and "Other birds" sections
 - Clustered markers for multiple bird sightings at the same location
 - Detailed popup information for each sighting including:
   - Species common name
@@ -227,7 +231,7 @@ GET /api/reverse-geocode?lat=36.9741&lon=-122.0308
 - `Notifications.jsx`:
   - `FadeNotification`: Temporary notification display
   - `LoadingOverlay`: Loading state indicator
-- `SpeciesSearch.jsx`: Species filtering dropdown with search functionality
+- `SpeciesSearch.jsx`: Species filtering dropdown with smart search functionality and visual indicators for visible and notable birds
 
 ### Utility Modules
 - `mapUtils.js`: Map functionality helpers (icons, calculations, caching)
@@ -273,9 +277,11 @@ The taxonomy data provides the foundation for species filtering, display, and or
 2. Application detects the current region (country/state)
 3. Region-specific species lists are fetched and cached
 4. Bird sightings are retrieved based on viewport location and filters
-5. Sightings are grouped by location and displayed as markers
-6. Photos are fetched for visible species
-7. URL parameters are updated to allow direct linking
+5. Notable bird information is fetched concurrently for badge display
+6. Sightings are grouped by location and displayed as markers
+7. Currently visible species are tracked and highlighted in the dropdown
+8. Photos are fetched for visible species
+9. URL parameters are updated to allow direct linking
 
 ## Performance Optimizations
 
