@@ -27,13 +27,17 @@ import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { CONTROL_BUTTON_STYLES } from '../../styles/controls';
 import { debug } from '../../utils/debug';
+import { animateMapToLocation } from '../../utils/mapUtils';
 
 /**
 * Custom Leaflet control component for location tracking
 * @component
+* @param {Object} props - Component props
+* @param {Function} props.setIsMapAnimating - Function to set map animation state
+* @param {Function} props.onAnimationComplete - Callback when animation completes
 * @returns {null} - Renders no DOM elements directly
 */
-export const LocationControl = () => {
+export const LocationControl = ({ setIsMapAnimating, onAnimationComplete }) => {
  const map = useMap();
  const [isLocating, setIsLocating] = useState(false);
 
@@ -61,10 +65,14 @@ export const LocationControl = () => {
        accuracy: e.accuracy
      });
 
-     map.flyTo(e.latlng, 12, {
-       duration: 1.5,
-       easeLinearity: 0.25
-     });
+     // Use the centralized animation utility
+     animateMapToLocation(
+       map,
+       e.latlng,
+       12,
+       setIsMapAnimating,
+       onAnimationComplete
+     );
 
      setIsLocating(false);
    },
@@ -78,7 +86,7 @@ export const LocationControl = () => {
      alert(errorMsg);
      setIsLocating(false);
    }
- }), [map]);
+ }), [map, setIsMapAnimating, onAnimationComplete]);
 
  useEffect(() => {
    const customControl = createCustomControl(handleLocate, isLocating);

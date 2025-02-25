@@ -56,60 +56,9 @@ export const initializeMapIcons = () => {
   L.Marker.prototype.options.icon = DefaultIcon;
 };
 
-/**
- * Cache for country data including bounds and last fetch time
- * @type {Map<string, {bounds: Object, timestamp: number}>}
- */
-const countryCache = new Map();
+// Country cache has been moved to regionUtils.js
 
-/**
- * Time-to-live for cached country data (7 days)
- * @type {number}
- */
-const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * Checks if a point is within a bounding box
- * @param {number} lat - Latitude to check
- * @param {number} lng - Longitude to check
- * @param {Object} bounds - Bounding box to check against
- * @returns {boolean} Whether the point is within the bounds
- */
-export const isWithinBounds = (lat, lng, bounds) => {
-  if (!bounds) return false;
-  
-  return lat >= bounds.minY && 
-         lat <= bounds.maxY && 
-         lng >= bounds.minX && 
-         lng <= bounds.maxX;
-};
-
-/**
- * Gets cached country data if available and not expired
- * @param {string} countryCode - ISO country code
- * @returns {Object|null} Cached country data or null if not available
- */
-export const getCachedCountry = (countryCode) => {
-  const cached = countryCache.get(countryCode);
-  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-    debug.debug('Using cached country data for:', countryCode);
-    return cached;
-  }
-  return null;
-};
-
-/**
- * Updates the country cache with new data
- * @param {string} countryCode - ISO country code
- * @param {Object} bounds - Country boundary data
- */
-export const updateCountryCache = (countryCode, bounds) => {
-  debug.debug('Updating country cache for:', countryCode);
-  countryCache.set(countryCode, {
-    bounds,
-    timestamp: Date.now()
-  });
-};
+// Region-related functions have been moved to regionUtils.js
 
 /**
  * Calculates the appropriate radius based on current viewport bounds
@@ -157,7 +106,7 @@ export const shouldFetchNewData = (
   const paramsChanged = 
     lastFetchParams.back !== currentParams.back || 
     lastFetchParams.species !== currentParams.species ||
-    lastFetchParams.country !== currentParams.country;
+    lastFetchParams.region !== currentParams.region; // Updated to check region
 
   if (paramsChanged) {
     debug.debug('Fetch parameters changed:', {
@@ -227,5 +176,50 @@ export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-// Export cache for testing
-export const _countryCache = countryCache;
+/**
+ * Animate the map to a new location with consistent behavior
+ * Sets animation flag to prevent region checks during animation,
+ * then resets flag and triggers region check when animation completes
+ * 
+ * @param {L.Map} map - The Leaflet map instance
+ * @param {L.LatLng|Array} position - The destination position [lat, lng] or L.LatLng
+ * @param {number} zoom - Zoom level to animate to
+ * @param {Function} setAnimatingFlag - Function to set animation state
+ * @param {Function} regionCheckCallback - Function to call after animation
+ */
+export const animateMapToLocation = (map, position, zoom, setAnimatingFlag, regionCheckCallback) => {
+  // Set animation flag to prevent interim region checks
+  if (setAnimatingFlag) {
+    setAnimatingFlag(true);
+  }
+  
+  // Set up one-time event listener for when animation ends
+  const onMoveEnd = () => {
+    debug.debug('Map animation complete (moveend event)');
+    
+    // Reset animation flag
+    if (setAnimatingFlag) {
+      setAnimatingFlag(false);
+    }
+    
+    // Trigger region check with final position
+    if (regionCheckCallback) {
+      const center = map.getCenter();
+      debug.debug('Performing region check after animation:', center);
+      regionCheckCallback(center);
+    }
+    
+    // Remove this one-time listener
+    map.off('moveend', onMoveEnd);
+  };
+  
+  // Add the listener before starting animation
+  map.once('moveend', onMoveEnd);
+  
+  // Start the animation
+  debug.debug('Starting map flyTo animation to:', position);
+  map.flyTo(position, zoom, {
+    duration: 2,
+    easeLinearity: 0.5
+  });
+};
