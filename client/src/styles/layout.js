@@ -100,6 +100,19 @@ export const LAYOUT_STYLES = {
  * @constant
  */
 export const POPUP_LAYOUT_STYLES = {
+    // Notable badge styling
+    notableBadge: {
+        marginLeft: '8px',
+        backgroundColor: COLORS.badges.notable,
+        color: COLORS.text.light,
+        fontSize: '0.6rem',
+        padding: '2px 6px',
+        borderRadius: '10px',
+        display: 'inline-block',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        lineHeight: 1
+    },
     // Scrollable content container
     contentContainer: {
         maxHeight: '225px',
