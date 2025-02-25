@@ -145,6 +145,7 @@ export const fetchRegionSpecies = async (regionCode) => {
  * @param {number} params.lng - Longitude
  * @param {number} params.radius - Search radius in kilometers
  * @param {string} params.species - Species code, or 'rare' or 'recent'
+ * @param {string} params.region - Region code (country or subregion)
  * @param {number} params.back - Number of days to look back
  * @returns {string} Formatted API URL with query parameters
  */
@@ -156,6 +157,11 @@ export const buildApiUrl = (params) => {
     species: params.species,
     back: params.back.toString()
   });
+
+  // Add region parameter if available (for future filtering support)
+  if (params.region) {
+    searchParams.append('region', params.region);
+  }
 
   return `${import.meta.env.VITE_API_URL}/api/birds?${searchParams}`;
 };

@@ -37,10 +37,11 @@ import {
   calculateViewportRadius,
   shouldFetchNewData,
   formatCoordinates,
-  isWithinBounds,
-  getCachedCountry,
-  updateCountryCache
+  animateMapToLocation
 } from '../utils/mapUtils';
+import {
+  getRegionForCoordinates
+} from '../utils/regionUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
 import { fetchBirdPhotos, processBirdSightings, buildApiUrl, fetchLocationDetails, searchLocation } from '../utils/dataUtils';
 import {
@@ -156,6 +157,7 @@ const BirdMap = () => {
   const [back, setBack] = useState(DEFAULT_MAP_PARAMS.back);
   const [zoom, setZoom] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
+  const [isMapAnimating, setIsMapAnimating] = useState(false);
   const inputRef = useRef(null);
 
   /**
@@ -239,7 +241,16 @@ const BirdMap = () => {
   
       if (data.found) {
         debug.info('Location found:', data);
-        mapRef.flyTo([data.lat, data.lon], 12);
+        
+        // Use the centralized animation utility
+        animateMapToLocation(
+          mapRef,
+          [data.lat, data.lon],
+          12,
+          setIsMapAnimating,
+          handleMoveEnd
+        );
+        
         setSearchInput('');
       } else {
         debug.warn('No location found for search:', searchInput);
@@ -269,42 +280,65 @@ const BirdMap = () => {
    */
 
   const handleMoveEnd = useCallback((center) => {
-    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng });
+    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating });
     setMapCenter({ lat: center.lat, lng: center.lng });
 
-    // Check if we've moved outside current country bounds
-    if (!countryBounds || !isWithinBounds(center.lat, center.lng, countryBounds)) {
-      debug.debug('Outside current country bounds, fetching new country info');
-    
-      const updateCountry = async () => {
-        try {
-          const countryInfo = await fetchLocationDetails(center.lat, center.lng);
-          
-          if (countryInfo.countryCode !== currentCountry) {
-            debug.debug('Country code comparison:', {
-              new: countryInfo.countryCode,
-              current: currentCountry,
-              isChanged: countryInfo.countryCode !== currentCountry
-            });
-    
-            setCurrentCountry(countryInfo.countryCode);
-            setCountryBounds(countryInfo.bounds);
-            updateCountryCache(countryInfo.countryCode, countryInfo.bounds);
-    
-            debug.debug('Initiating species fetch for country:', countryInfo.countryCode);
-            await updateRegionSpecies(countryInfo.countryCode);
-            debug.debug('Completed species fetch');
-    
-            setLastFetchParams(null);
-          }
-        } catch (error) {
-          debug.error('Error updating country:', error);
-        }
-      };
-    
-      updateCountry();
+    // Skip region check if the map is currently animating (during flyTo)
+    if (isMapAnimating) {
+      debug.debug('Skipping region check during map animation');
+      return;
     }
-  }, [currentCountry, countryBounds, updateRegionSpecies]);
+
+    // Check for region changes using the new region detection logic
+    const updateRegion = async () => {
+      try {
+        // Get region info for current coordinates
+        const regionInfo = await getRegionForCoordinates(center.lat, center.lng);
+        
+        if (!regionInfo) {
+          debug.warn('Could not determine region for coordinates');
+          return;
+        }
+        
+        const regionCode = regionInfo.subregion?.code || regionInfo.country.code;
+        
+        // Check if region has changed
+        if (regionCode !== currentCountry) {
+          debug.info('Region changed:', {
+            from: currentCountry,
+            to: regionCode,
+            hasSubregion: !!regionInfo.subregion
+          });
+          
+          // Update state with new region information
+          setCurrentCountry(regionCode);
+          
+          // If we have a subregion, use its bounds, otherwise use country bounds
+          if (regionInfo.subregion) {
+            debug.debug('Using subregion bounds');
+            // TODO: Store and use subregion bounds when implementing full subregion support
+          } else if (regionInfo.country) {
+            debug.debug('Using country bounds');
+            // For backward compatibility, we're still using countryBounds for now
+            // This will be updated when full subregion support is implemented
+          }
+          
+          // Fetch species for the new region
+          debug.debug('Initiating species fetch for region:', regionCode);
+          await updateRegionSpecies(regionCode);
+          debug.debug('Completed species fetch');
+          
+          // Force data refetch with new region
+          setLastFetchParams(null);
+        }
+      } catch (error) {
+        debug.error('Error updating region:', error);
+      }
+    };
+    
+    // Check for region changes - our new utility handles caching internally
+    updateRegion();
+  }, [currentCountry, updateRegionSpecies, isMapAnimating]);
 
   /**
    * Fetches bird sighting data based on current map position and filters
@@ -316,7 +350,7 @@ const BirdMap = () => {
       back,
       species: selectedSpecies,
       radius: currentRadius,
-      country: currentCountry
+      region: currentCountry // Renamed from country to region for clarity
     };
 
     if (!shouldFetchNewData(
@@ -337,7 +371,7 @@ const BirdMap = () => {
         lng,
         radius: currentRadius,
         species: selectedSpecies,
-        country: currentCountry,
+        region: currentCountry, // Update parameter name here too
         back
       });
 
@@ -346,7 +380,7 @@ const BirdMap = () => {
         lng,
         radius: currentRadius,
         species: selectedSpecies,
-        country: currentCountry,
+        region: currentCountry,
         back
       });
 
@@ -366,7 +400,7 @@ const BirdMap = () => {
 
       setBirdSightings(processedSightings);
       setLastFetchLocation({ lat, lng });
-      setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius });
+      setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius, region: currentCountry });
 
     } catch (error) {
       debug.error('Error fetching bird data:', error);
@@ -403,25 +437,23 @@ const BirdMap = () => {
         setBack(params.back);
         setZoom(params.zoom);
 
-        // Get initial country info
+        // Get initial region info using our new utility
         try {
-          const countryInfo = await fetchLocationDetails(params.lat, params.lng);
-          debug.debug('Received country info:', countryInfo);
+          const regionInfo = await getRegionForCoordinates(params.lat, params.lng);
+          debug.debug('Received region info:', regionInfo);
           
-          if (countryInfo.countryCode !== 'UNKNOWN') {
-            setCurrentCountry(countryInfo.countryCode);
-            if (countryInfo.bounds) {
-              setCountryBounds(countryInfo.bounds);
-              updateCountryCache(countryInfo.countryCode, countryInfo.bounds);
-            }
-        
-            debug.debug('Fetching initial species list for country:', countryInfo.countryCode);
-            const cachedSpecies = getCachedSpecies(countryInfo.countryCode);
+          if (regionInfo) {
+            const regionCode = regionInfo.subregion?.code || regionInfo.country.code;
+            debug.debug('Setting initial region:', regionCode);
+            setCurrentCountry(regionCode);
+            
+            // Get cached species if available, otherwise fetch new
+            const cachedSpecies = getCachedSpecies(regionCode);
             if (cachedSpecies) {
               debug.debug('Using cached species data:', { count: cachedSpecies.length });
               setRegionSpecies(cachedSpecies);
             } else {
-              await updateRegionSpecies(countryInfo.countryCode);
+              await updateRegionSpecies(regionCode);
             }
           }
         } catch (error) {
@@ -523,7 +555,10 @@ const BirdMap = () => {
             <MapEvents onMoveEnd={handleMoveEnd} />
             <PopupInteractionHandler />
             <ZoomControl position="topright" />
-            <LocationControl />
+            <LocationControl 
+              setIsMapAnimating={setIsMapAnimating} 
+              onAnimationComplete={handleMoveEnd} 
+            />
             {birdSightings.map((location, index) => (
               <BirdMarker
                 key={`${location.lat}-${location.lng}-${index}`}

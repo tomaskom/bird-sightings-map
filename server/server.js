@@ -260,6 +260,92 @@ const fetchRegionSpecies = async (regionCode) => {
   }
 };
 
+/**
+ * Fetches subregions for a parent region from eBird API
+ * @param {string} parentRegionCode - Parent eBird region code (e.g., "US")
+ * @param {string} regionType - Type of subregion (e.g., "subnational1")
+ * @returns {Promise<Object[]>} Subregion data with codes and names
+ * @throws {Error} If API request fails
+ */
+const fetchSubregions = async (parentRegionCode, regionType = 'subnational1') => {
+  const baseUrl = 'https://api.ebird.org/v2/ref/region/list';
+  const url = `${baseUrl}/${regionType}/${parentRegionCode}`;
+
+  debug.debug('Constructing subregion request:', {
+    endpoint: baseUrl,
+    parentRegion: parentRegionCode,
+    regionType: regionType
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      'x-ebirdapitoken': process.env.EBIRD_API_KEY
+    }
+  });
+
+  debug.info('eBird API response status:', response.status);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    debug.error('eBird API error:', errorText);
+    throw new Error('eBird API request failed');
+  }
+
+  const responseText = await response.text();
+  debug.debug('eBird raw response:', responseText);
+
+  try {
+    const data = JSON.parse(responseText);
+    debug.info('Successfully parsed subregion records:', data.length);
+    return data;
+  } catch (error) {
+    debug.error('Failed to parse eBird response:', error);
+    throw new Error('Invalid response format from eBird API');
+  }
+};
+
+/**
+ * Fetches region information including boundaries from eBird API
+ * @param {string} regionCode - eBird region code
+ * @returns {Promise<Object>} Region information with name and boundaries
+ * @throws {Error} If API request fails
+ */
+const fetchRegionInfo = async (regionCode) => {
+  const baseUrl = 'https://api.ebird.org/v2/ref/region/info';
+  const url = `${baseUrl}/${regionCode}`;
+
+  debug.debug('Constructing region info request:', {
+    endpoint: baseUrl,
+    region: regionCode
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      'x-ebirdapitoken': process.env.EBIRD_API_KEY
+    }
+  });
+
+  debug.info('eBird API response status:', response.status);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    debug.error('eBird API error:', errorText);
+    throw new Error('eBird API request failed');
+  }
+
+  const responseText = await response.text();
+  debug.debug('eBird raw response:', responseText);
+
+  try {
+    const data = JSON.parse(responseText);
+    debug.info('Successfully parsed region info');
+    return data;
+  } catch (error) {
+    debug.error('Failed to parse eBird response:', error);
+    throw new Error('Invalid response format from eBird API');
+  }
+};
+
 
 // API Routes
 app.get('/api/birds', async (req, res) => {
@@ -285,6 +371,33 @@ app.get('/api/region-species/:regionCode', async (req, res) => {
   } catch (error) {
     debug.error('Error handling region species request:', error.message);
     res.status(500).json({ error: 'Failed to fetch region species data' });
+  }
+});
+
+app.get('/api/subregions/:parentRegionCode', async (req, res) => {
+  const { parentRegionCode } = req.params;
+  const { type = 'subnational1' } = req.query;
+  debug.info('Received subregions request:', { parentRegionCode, type });
+
+  try {
+    const data = await fetchSubregions(parentRegionCode, type);
+    res.json(data);
+  } catch (error) {
+    debug.error('Error handling subregions request:', error.message);
+    res.status(500).json({ error: 'Failed to fetch subregions data' });
+  }
+});
+
+app.get('/api/region-info/:regionCode', async (req, res) => {
+  const { regionCode } = req.params;
+  debug.info('Received region info request:', regionCode);
+
+  try {
+    const data = await fetchRegionInfo(regionCode);
+    res.json(data);
+  } catch (error) {
+    debug.error('Error handling region info request:', error.message);
+    res.status(500).json({ error: 'Failed to fetch region info' });
   }
 });
 
