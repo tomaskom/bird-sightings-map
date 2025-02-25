@@ -71,7 +71,8 @@ export const COLORS = {
     badges: {
         onMap: '#FD7014',
         notable: '#BE123C',
-        countBadge: '#2A81CB'
+        countBadge: '#2A81CB',
+        rareBadge: '#BE123C'
     },
     
     // Map marker colors

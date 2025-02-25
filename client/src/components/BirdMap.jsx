@@ -631,7 +631,12 @@ const BirdMap = () => {
               <BirdMarker
                 key={`${location.lat}-${location.lng}-${index}`}
                 location={location}
-                icon={location.birds.length > 1 ? createMultiBirdIcon(location.birds.length) : DefaultIcon}
+                icon={location.birds.length > 1 
+                  ? createMultiBirdIcon(
+                      location.birds.length, 
+                      location.birds.some(bird => notableSpeciesCodes.has(bird.speciesCode))
+                    ) 
+                  : DefaultIcon}
                 notableSpeciesCodes={notableSpeciesCodes}
                 onSpeciesSelect={handleSpeciesSelect}
                 mapRef={mapRef}

@@ -248,6 +248,25 @@ export const MARKER_STYLES = {
         paddingBottom: '1px',
         fontWeight: 'bold',
         boxShadow: `0 1px 3px ${COLORS.markers.iconShadow}`
+    },
+    // Notable bird indicator badge 
+    notableMarkerBadge: {
+        position: 'absolute',
+        bottom: '3px',
+        left: '-3px',
+        backgroundColor: COLORS.badges.notable,
+        color: COLORS.text.light,
+        borderRadius: '50%',
+        width: '12px',
+        height: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px solid white',
+        fontSize: '8px',
+        lineHeight: 1,
+        fontWeight: 'bold',
+        boxShadow: `0 1px 3px ${COLORS.markers.iconShadow}`
     }
 };
 
