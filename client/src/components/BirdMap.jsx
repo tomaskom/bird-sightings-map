@@ -158,6 +158,7 @@ const BirdMap = () => {
   const [zoom, setZoom] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
   const [isMapAnimating, setIsMapAnimating] = useState(false);
+  const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const inputRef = useRef(null);
 
   /**
@@ -398,6 +399,22 @@ const BirdMap = () => {
       const speciesPhotos = await fetchBirdPhotos(uniqueSpecies);
       const processedSightings = processBirdSightings(data, speciesPhotos);
 
+      // Extract species codes from sightings to track visible species
+      const currentVisibleSpecies = new Set();
+      processedSightings.forEach(location => {
+        location.birds.forEach(bird => {
+          if (bird.speciesCode) {
+            currentVisibleSpecies.add(bird.speciesCode);
+          }
+        });
+      });
+      
+      debug.debug('Visible species on map:', {
+        count: currentVisibleSpecies.size,
+        sample: Array.from(currentVisibleSpecies).slice(0, 5)
+      });
+      
+      setVisibleSpeciesCodes(currentVisibleSpecies);
       setBirdSightings(processedSightings);
       setLastFetchLocation({ lat, lng });
       setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius, region: currentCountry });
@@ -489,6 +506,7 @@ const BirdMap = () => {
             speciesCode={selectedSpecies}
             allSpeciesCode={SPECIES_CODES.ALL}
             rareSpeciesCode={SPECIES_CODES.RARE}
+            visibleSpeciesCodes={visibleSpeciesCodes}
           />
 
           <div style={LAYOUT_STYLES.pullDown}>

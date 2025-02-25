@@ -59,5 +59,11 @@ export const COLORS = {
     // Shadow effects
     shadow: {
         dark: 'rgba(0, 0, 0, 0.7)'
+    },
+    
+    // Species search component
+    speciesSearch: {
+        visibleSpeciesBackground: 'rgba(253, 112, 20, 0.1)',
+        visibleSpeciesHeader: 'rgba(253, 112, 20, 0.15)'
     }
 };

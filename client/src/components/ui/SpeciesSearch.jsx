@@ -31,14 +31,16 @@ const SpeciesSearch = ({
     rareSpeciesCode,
     regionSpecies = [],
     currentCountry,
-    speciesLoading
+    speciesLoading,
+    visibleSpeciesCodes = new Set()
 }) => {
     debug.debug('SpeciesSearch render:', {
         speciesCount: regionSpecies?.length,
         hasSpecies: !!regionSpecies?.length,
         currentCountry,
         speciesCode,
-        disabled
+        disabled,
+        visibleSpeciesCount: visibleSpeciesCodes.size
     });
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -71,21 +73,40 @@ const SpeciesSearch = ({
             }
         }
     }, [speciesCode, regionSpecies, getDisplayName]);
-
-    const searchSpecies = (term) => {
-        if (!term?.trim() || term === 'All Birds' || term === 'Rare Birds') {
-            return regionSpecies || [];
-        }
     
+    const searchSpecies = (term) => {
         if (!regionSpecies?.length) {
             return [];
         }
+        
+        if (!term?.trim() || term === 'All Birds' || term === 'Rare Birds') {
+            // No search term, return all species but sort visible ones first
+            return [...regionSpecies].sort((a, b) => {
+                const aVisible = visibleSpeciesCodes.has(a.speciesCode);
+                const bVisible = visibleSpeciesCodes.has(b.speciesCode);
+                
+                if (aVisible && !bVisible) return -1;
+                if (!aVisible && bVisible) return 1;
+                return a.taxonOrder - b.taxonOrder; // Keep taxonomic order within groups
+            });
+        }
     
+        // Filter by search term
         const normalizedTerm = term.toLowerCase();
-        return regionSpecies.filter(species =>
+        const filtered = regionSpecies.filter(species =>
             species.commonName?.toLowerCase().includes(normalizedTerm) ||
             species.scientificName?.toLowerCase().includes(normalizedTerm)
         );
+        
+        // Sort filtered results with visible species first
+        return filtered.sort((a, b) => {
+            const aVisible = visibleSpeciesCodes.has(a.speciesCode);
+            const bVisible = visibleSpeciesCodes.has(b.speciesCode);
+            
+            if (aVisible && !bVisible) return -1;
+            if (!aVisible && bVisible) return 1;
+            return a.taxonOrder - b.taxonOrder;
+        });
     };
 
     const debouncedSearch = useCallback(
@@ -93,8 +114,16 @@ const SpeciesSearch = ({
             const results = searchSpecies(term);
             setFilteredSpecies(results);
         }, 300),
-        [regionSpecies]
+        [regionSpecies, visibleSpeciesCodes]
     );
+    
+    // Re-sort species when visible species change (only if dropdown is open)
+    useEffect(() => {
+        if (isOpen && !isSearching && searchTerm !== 'All Birds' && searchTerm !== 'Rare Birds') {
+            debug.debug('Visible species changed, resorting dropdown');
+            debouncedSearch(searchTerm);
+        }
+    }, [visibleSpeciesCodes, isOpen, isSearching, searchTerm, debouncedSearch]);
 
     const handleInputChange = (e) => {
         const value = e.target.value;
@@ -252,25 +281,90 @@ const SpeciesSearch = ({
 
                     <div style={SPECIES_SEARCH_STYLES.speciesList} role="listbox">
                         {filteredSpecies?.length > 0 ? (
-                            filteredSpecies.map((species) => (
-                                <div
-                                    key={species.speciesCode}
-                                    style={SPECIES_SEARCH_STYLES.speciesOption}
-                                    onClick={() => handleSelect(species)}
-                                    role="option"
-                                    aria-selected={currentSelectionRef.current === species.commonName}
-                                >
-                                    <div style={SPECIES_SEARCH_STYLES.commonName}>
-                                        <span style={SPECIES_SEARCH_STYLES.checkmark}>
-                                            {currentSelectionRef.current === species.commonName ? '✓' : ''}
-                                        </span>
-                                        {species.commonName}
-                                    </div>
-                                    <div style={SPECIES_SEARCH_STYLES.scientificName}>
-                                        {species.scientificName}
-                                    </div>
-                                </div>
-                            ))
+                            <>
+                                {/* Split species into visible and non-visible groups */}
+                                {(() => {
+                                    const visibleSpecies = filteredSpecies.filter(species => 
+                                        visibleSpeciesCodes.has(species.speciesCode)
+                                    );
+                                    const otherSpecies = filteredSpecies.filter(species => 
+                                        !visibleSpeciesCodes.has(species.speciesCode)
+                                    );
+                                    
+                                    return (
+                                        <>
+                                            {/* Visible species section */}
+                                            {visibleSpecies.length > 0 && (
+                                                <>
+                                                    <div style={SPECIES_SEARCH_STYLES.visibleSpeciesHeader}>
+                                                        Birds on map ({visibleSpecies.length})
+                                                    </div>
+                                                    
+                                                    {visibleSpecies.map((species) => {
+                                                        const isSelected = currentSelectionRef.current === species.commonName;
+                                                        
+                                                        return (
+                                                            <div
+                                                                key={species.speciesCode}
+                                                                style={SPECIES_SEARCH_STYLES.visibleSpeciesOption}
+                                                                onClick={() => handleSelect(species)}
+                                                                role="option"
+                                                                aria-selected={isSelected}
+                                                            >
+                                                                <div style={SPECIES_SEARCH_STYLES.commonName}>
+                                                                    <span style={SPECIES_SEARCH_STYLES.checkmark}>
+                                                                        {isSelected ? '✓' : ''}
+                                                                    </span>
+                                                                    {species.commonName}
+                                                                    <span style={SPECIES_SEARCH_STYLES.visibleBadge}>
+                                                                        on map
+                                                                    </span>
+                                                                </div>
+                                                                <div style={SPECIES_SEARCH_STYLES.scientificName}>
+                                                                    {species.scientificName}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </>
+                                            )}
+                                            
+                                            {/* Other species section */}
+                                            {otherSpecies.length > 0 && (
+                                                <>
+                                                    <div style={SPECIES_SEARCH_STYLES.otherSpeciesHeader}>
+                                                        Other birds ({otherSpecies.length})
+                                                    </div>
+                                                    
+                                                    {otherSpecies.map((species) => {
+                                                        const isSelected = currentSelectionRef.current === species.commonName;
+                                                        
+                                                        return (
+                                                            <div
+                                                                key={species.speciesCode}
+                                                                style={SPECIES_SEARCH_STYLES.speciesOption}
+                                                                onClick={() => handleSelect(species)}
+                                                                role="option"
+                                                                aria-selected={isSelected}
+                                                            >
+                                                                <div style={SPECIES_SEARCH_STYLES.commonName}>
+                                                                    <span style={SPECIES_SEARCH_STYLES.checkmark}>
+                                                                        {isSelected ? '✓' : ''}
+                                                                    </span>
+                                                                    {species.commonName}
+                                                                </div>
+                                                                <div style={SPECIES_SEARCH_STYLES.scientificName}>
+                                                                    {species.scientificName}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                            </>
                         ) : (
                             <div style={SPECIES_SEARCH_STYLES.noResults}>
                                 {speciesLoading ? "Loading species..." :
