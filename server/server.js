@@ -74,6 +74,30 @@ const geocodeLimiter = rateLimit({
   message: { error: 'Too many location searches, please wait a moment' }
 });
 
+// Simple admin endpoint authentication middleware
+const adminAuth = (req, res, next) => {
+  const apiKey = req.query.key || req.headers['x-api-key'];
+  const envApiKey = process.env.ADMIN_API_KEY;
+  
+  // If no API key is set in env, only allow from localhost
+  if (!envApiKey) {
+    const ip = req.ip || req.connection.remoteAddress;
+    if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') {
+      return next();
+    }
+    debug.warn('Admin access attempt without API key from:', ip);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  // Check the provided API key
+  if (apiKey === envApiKey) {
+    return next();
+  }
+  
+  debug.warn('Invalid admin API key attempt');
+  return res.status(401).json({ error: 'Unauthorized' });
+};
+
 // Nominatim configuration
 const NOMINATIM_CONFIG = {
   headers: {
@@ -501,7 +525,7 @@ app.get('/api/birds/viewport', async (req, res) => {
  * API endpoint for cache statistics (admin use)
  * @route GET /api/admin/cache-stats
  */
-app.get('/api/admin/cache-stats', (req, res) => {
+app.get('/api/admin/cache-stats', adminAuth, (req, res) => {
   const stats = getStats();
   debug.info('Cache stats requested:', stats);
   res.json(stats);
@@ -511,7 +535,7 @@ app.get('/api/admin/cache-stats', (req, res) => {
  * API endpoint for manually clearing expired cache entries
  * @route GET /api/admin/clear-expired-cache
  */
-app.get('/api/admin/clear-expired-cache', (req, res) => {
+app.get('/api/admin/clear-expired-cache', adminAuth, (req, res) => {
   const removed = clearExpired();
   debug.info(`Manually cleared ${removed} expired cache entries`);
   res.json({ success: true, removed });
@@ -521,7 +545,7 @@ app.get('/api/admin/clear-expired-cache', (req, res) => {
  * API endpoint to debug tile calculations for a given viewport
  * @route GET /api/admin/tile-debug
  */
-app.get('/api/admin/tile-debug', (req, res) => {
+app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
   const { minLat, maxLat, minLng, maxLng, back = '7' } = req.query;
   
   debug.tile('Tile debug request:', { minLat, maxLat, minLng, maxLng, back });
