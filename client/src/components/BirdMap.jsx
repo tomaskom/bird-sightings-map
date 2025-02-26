@@ -201,6 +201,24 @@ const BirdMap = () => {
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
   const [useViewportApi, setUseViewportApi] = useState(true); // Toggle for using new API
   const inputRef = useRef(null);
+  
+  // Loading state manager - use this to track multiple loading operations
+  const loadingStateRef = useRef(0);
+  
+  // Controlled methods to manage loading state
+  const startLoading = useCallback(() => {
+    loadingStateRef.current += 1;
+    debug.debug(`Start loading operation (count: ${loadingStateRef.current})`);
+    setLoading(true);
+  }, []);
+  
+  const endLoading = useCallback(() => {
+    loadingStateRef.current = Math.max(0, loadingStateRef.current - 1);
+    debug.debug(`End loading operation (count: ${loadingStateRef.current})`);
+    if (loadingStateRef.current === 0) {
+      setLoading(false);
+    }
+  }, []);
 
   /**
    * Fetches and updates species list for the current region
@@ -530,8 +548,29 @@ const BirdMap = () => {
       if (selectedSpecies !== lastFetchParams?.species) {
         debug.debug('Filtering existing data for new species selection:', selectedSpecies);
         
-        // Process filtered data
-        processAndDisplayFilteredData(filterBirdDataBySpecies(allBirdData));
+        // Start a loading operation for filtering
+        startLoading();
+        
+        // Filter data
+        const filteredData = filterBirdDataBySpecies(allBirdData);
+        
+        // Process filtered data (the function handles endLoading internally)
+        startLoading(); // Add another loading operation for the processing stage
+        processAndDisplayFilteredData(filteredData)
+          .catch(error => {
+            debug.error('Error processing filtered data:', error);
+            // Loading state is cleared in the function
+          })
+          .finally(() => {
+            // End the loading operation for the filtering stage
+            endLoading();
+          });
+        
+        // Update last fetch params to avoid refiltering
+        setLastFetchParams({
+          ...lastFetchParams,
+          species: selectedSpecies
+        });
       }
       
       return;
@@ -553,7 +592,7 @@ const BirdMap = () => {
       }
     }
     
-    setLoading(true);
+    startLoading();
     
     try {
       let apiUrl, debugInfo;
@@ -607,8 +646,9 @@ const BirdMap = () => {
         // Filter the data by current species selection
         const filteredData = filterBirdDataBySpecies(data);
         
-        // Process and display the data
-        processAndDisplayFilteredData(filteredData);
+        // Process and display the data - note: this function handles endLoading internally
+        startLoading(); // Add another loading operation for the processing stage
+        await processAndDisplayFilteredData(filteredData);
         
         // Update last fetch parameters for both approaches
         setLastFetchParams({ 
@@ -688,15 +728,17 @@ const BirdMap = () => {
       debug.error('Error fetching bird data:', error);
       alert('Error fetching bird sightings');
     } finally {
-      setLoading(false);
+      endLoading(); // End the loading operation for the fetch itself
     }
   };
   
   /**
    * Process filtered data and update state with it
    * @param {Array} filteredData - Bird data filtered by species
+   * @returns {Promise<void>} Promise that resolves when processing is complete
    */
   const processAndDisplayFilteredData = async (filteredData) => {
+    const startTime = Date.now();
     try {
       // Process the filtered data
       const processedSightings = await processBirdSightings(filteredData);
@@ -743,7 +785,8 @@ const BirdMap = () => {
         sightingLocations: processedSightings.length,
         visibleSpecies: currentVisibleSpecies.size,
         visibleSpeciesSample: Array.from(currentVisibleSpecies).slice(0, 3),
-        notableSpecies: currentNotableSpecies.size
+        notableSpecies: currentNotableSpecies.size,
+        processingTime: `${Date.now() - startTime}ms`
       });
       
       // Update state - this ensures the species search dropdown shows exactly what's in the viewport
@@ -752,6 +795,11 @@ const BirdMap = () => {
       setBirdSightings(processedSightings);
     } catch (error) {
       debug.error('Error processing filtered data:', error);
+      // Re-throw to allow caller to handle errors
+      throw error;
+    } finally {
+      // Always end the loading operation, regardless of success or failure
+      endLoading();
     }
   };
 
@@ -773,16 +821,36 @@ const BirdMap = () => {
   
   // Effect to handle species filtering when we have viewport data
   useEffect(() => {
-    if (useViewportApi && allBirdData && !loading) {
+    if (useViewportApi && allBirdData && loadingStateRef.current === 0) {
       debug.info('🔄 Species changed, filtering existing data:', selectedSpecies);
       
-      // Filter existing data without fetching
-      const filteredData = filterBirdDataBySpecies(allBirdData);
+      // Start a loading operation for the filtering process
+      startLoading();
       
-      // Process and display the filtered data
-      processAndDisplayFilteredData(filteredData);
+      // Need to use requestAnimationFrame to ensure the loading state renders
+      // before we start potentially CPU-intensive filtering
+      requestAnimationFrame(() => {
+        try {
+          // Filter existing data without fetching
+          const filteredData = filterBirdDataBySpecies(allBirdData);
+          
+          // Process and display the filtered data
+          startLoading(); // Add another loading operation for the processing stage
+          processAndDisplayFilteredData(filteredData)
+            .catch(error => {
+              debug.error('Error during species filtering:', error);
+            })
+            .finally(() => {
+              // End the loading operation for filtering
+              endLoading();
+            });
+        } catch (error) {
+          debug.error('Error filtering data:', error);
+          endLoading();
+        }
+      });
     }
-  }, [selectedSpecies, useViewportApi, allBirdData, loading]);
+  }, [selectedSpecies, useViewportApi, allBirdData, startLoading, endLoading]);
 
   // Load URL parameters on component mount
   useEffect(() => {
