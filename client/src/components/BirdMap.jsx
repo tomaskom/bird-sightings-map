@@ -43,7 +43,7 @@ import {
   getRegionForCoordinates
 } from '../utils/regionUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
-import { fetchBirdPhotos, processBirdSightings, buildApiUrl, fetchLocationDetails, searchLocation, fetchNotableBirds } from '../utils/dataUtils';
+import { fetchBirdPhotos, processBirdSightings, buildApiUrl, buildViewportApiUrl, fetchLocationDetails, searchLocation, fetchNotableBirds } from '../utils/dataUtils';
 import {
   filterSpeciesByName,
   fetchRegionSpecies,
@@ -137,7 +137,7 @@ BirdMarker.displayName = 'BirdMarker';
  * @param {Object} props - Component props
  * @param {Function} props.onMoveEnd - Callback for map movement end
  */
-const MapEvents = ({ onMoveEnd }) => {
+const MapEvents = ({ onMoveEnd, onViewportChange }) => {
   const map = useMapEvents({
     dragstart: () => {
       debug.debug('Map drag started, closing all popups');
@@ -151,12 +151,19 @@ const MapEvents = ({ onMoveEnd }) => {
       const center = map.getCenter();
       const zoom = map.getZoom();
       debug.debug('Map move ended:', { lat: center.lat, lng: center.lng, zoom });
+      
+      // Update URL and call the move end handler
       onMoveEnd(center);
       updateUrlParams({
         lat: center.lat,
         lng: center.lng,
         zoom: zoom,
       });
+      
+      // Update which species are considered "visible" based on new viewport
+      if (onViewportChange) {
+        onViewportChange(map.getBounds());
+      }
     }
   });
   return null;
@@ -173,7 +180,9 @@ const BirdMap = () => {
   const [mapCenter, setMapCenter] = useState(null);
   const [lastFetchLocation, setLastFetchLocation] = useState(null);
   const [lastFetchParams, setLastFetchParams] = useState(null);
+  const [lastFetchViewport, setLastFetchViewport] = useState(null);
   const [birdSightings, setBirdSightings] = useState([]);
+  const [allBirdData, setAllBirdData] = useState(null); // Complete dataset for filtering
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [currentCountry, setCurrentCountry] = useState(null);
@@ -188,6 +197,7 @@ const BirdMap = () => {
   const [isMapAnimating, setIsMapAnimating] = useState(false);
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
+  const [useViewportApi, setUseViewportApi] = useState(true); // Toggle for using new API
   const inputRef = useRef(null);
 
   /**
@@ -238,16 +248,36 @@ const BirdMap = () => {
     // The selection object contains either a type (for pinned options) 
     // or a speciesCode (for specific birds)
     const speciesCode = selection.type || selection.speciesCode;
+    
+    if (speciesCode === selectedSpecies) {
+      debug.debug('Species already selected, no change needed');
+      return;
+    }
 
     setSelectedSpecies(speciesCode);
-
+    
     if (mapRef) {
       updateUrlParams({
         species: speciesCode
       });
-      setLastFetchParams(null); // Force refetch with new species
+      
+      // With viewport API, we can filter data locally without refetching
+      if (useViewportApi && allBirdData) {
+        // Update last fetch params, but don't clear the viewport data
+        setLastFetchParams({
+          ...lastFetchParams,
+          species: speciesCode
+        });
+        
+        debug.info('🔄 Filtering existing viewport data for new species:', speciesCode);
+        
+        // We'll handle the filtering in the useEffect
+      } else {
+        // Using legacy API - need to refetch
+        setLastFetchParams(null); // Force refetch with new species
+      }
     }
-  }, [mapRef]);
+  }, [mapRef, useViewportApi, allBirdData, selectedSpecies, lastFetchParams]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -301,7 +331,60 @@ const BirdMap = () => {
         back: newDays,
       });
       setLastFetchParams(null); // Force refetch with new days
+      setLastFetchViewport(null); // Force refetch with new days
     }
+  };
+  
+  /**
+   * Checks if the new viewport is contained within the old viewport
+   * or if they're effectively the same.
+   * @param {Object} oldViewport - Previously fetched viewport
+   * @param {Object} newViewport - Current viewport
+   * @returns {boolean} True if new viewport is contained within old or they're the same
+   */
+  const isViewportContained = (oldViewport, newViewport) => {
+    if (!oldViewport || !newViewport) return false;
+    
+    // If days changed, we need to refetch
+    if (oldViewport.back !== newViewport.back) return false;
+    
+    // Check if new viewport is fully contained within old viewport
+    // Add a small buffer (0.001 degrees) to account for floating point precision
+    const buffer = 0.001;
+    
+    const isContained = 
+      newViewport.minLat >= (oldViewport.minLat - buffer) &&
+      newViewport.maxLat <= (oldViewport.maxLat + buffer) &&
+      newViewport.minLng >= (oldViewport.minLng - buffer) &&
+      newViewport.maxLng <= (oldViewport.maxLng + buffer);
+    
+    if (isContained) {
+      debug.info('🔍 New viewport is contained within old viewport, using cached data');
+    }
+    
+    return isContained;
+  };
+  
+  /**
+   * Filters bird data based on selected species type
+   * @param {Array} allBirds - Complete bird data from server
+   * @param {string} speciesCode - Selected species code or filter type
+   * @returns {Array} Filtered bird data
+   */
+  const filterBirdDataBySpecies = (allBirds) => {
+    if (!allBirds) return [];
+    
+    // Handle special filter types
+    if (selectedSpecies === SPECIES_CODES.ALL) {
+      return allBirds;
+    }
+    
+    if (selectedSpecies === SPECIES_CODES.RARE) {
+      return allBirds.filter(bird => bird.isNotable);
+    }
+    
+    // Filter by specific species
+    return allBirds.filter(bird => bird.speciesCode === selectedSpecies);
   };
 
   /**
@@ -309,6 +392,52 @@ const BirdMap = () => {
    * @param {L.LatLng} center - New center coordinates of the map
    */
 
+  /**
+   * Handles updates needed when the viewport bounds change
+   * Updates the visible species based on what's actually in view 
+   * @param {L.LatLngBounds} bounds - The current map bounds
+   */
+  const handleViewportChange = useCallback((bounds) => {
+    // If we don't have any bird data yet, nothing to update
+    if (!birdSightings || birdSightings.length === 0) return;
+    
+    // Get the bounds
+    const visibleBounds = {
+      minLat: bounds.getSouth(),
+      maxLat: bounds.getNorth(),
+      minLng: bounds.getWest(),
+      maxLng: bounds.getEast()
+    };
+    
+    // Check which species are actually visible in the viewport
+    const visibleInViewport = new Set();
+    birdSightings.forEach(location => {
+      // Check if this location is within the visible bounds
+      const isLocationVisible = 
+        location.lat >= visibleBounds.minLat && 
+        location.lat <= visibleBounds.maxLat &&
+        location.lng >= visibleBounds.minLng && 
+        location.lng <= visibleBounds.maxLng;
+      
+      // Only add species from visible locations
+      if (isLocationVisible) {
+        location.birds.forEach(bird => {
+          if (bird.speciesCode) {
+            visibleInViewport.add(bird.speciesCode);
+          }
+        });
+      }
+    });
+    
+    // Update the visible species codes
+    debug.info('Viewport changed, updating visible species:', {
+      previousCount: visibleSpeciesCodes.size,
+      newCount: visibleInViewport.size
+    });
+    
+    setVisibleSpeciesCodes(visibleInViewport);
+  }, [birdSightings, visibleSpeciesCodes]);
+  
   const handleMoveEnd = useCallback((center) => {
     debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating });
     setMapCenter({ lat: center.lat, lng: center.lng });
@@ -371,108 +500,256 @@ const BirdMap = () => {
   }, [currentCountry, updateRegionSpecies, isMapAnimating]);
 
   /**
-   * Fetches bird sighting data based on current map position and filters
+   * Fetches bird sighting data based on current map viewport
    * @async
    */
   const fetchBirdData = async () => {
-    const currentRadius = calculateViewportRadius(mapRef.getBounds());
-    const currentParams = {
-      back,
-      species: selectedSpecies,
-      radius: currentRadius,
-      region: currentCountry // Renamed from country to region for clarity
+    if (!mapRef) return;
+    
+    // Get current map bounds
+    const bounds = mapRef.getBounds();
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    
+    // Create new viewport parameters
+    const currentViewport = {
+      minLat: sw.lat,
+      maxLat: ne.lat,
+      minLng: sw.lng,
+      maxLng: ne.lng,
+      back
     };
-
-    if (!shouldFetchNewData(
-      lastFetchParams,
-      currentParams,
-      lastFetchLocation,
-      mapCenter
-    )) {
-      debug.debug('Skipping fetch - within threshold');
+    
+    // Check if we already have data for this viewport (or if it's zoomed in)
+    if (useViewportApi && isViewportContained(lastFetchViewport, currentViewport) && allBirdData) {
+      debug.debug('Viewport is contained within last fetch, reusing data');
+      
+      // Filter the existing data by species if needed
+      if (selectedSpecies !== lastFetchParams?.species) {
+        debug.debug('Filtering existing data for new species selection:', selectedSpecies);
+        
+        // Process filtered data
+        processAndDisplayFilteredData(filterBirdDataBySpecies(allBirdData));
+      }
+      
       return;
     }
-
-    setLoading(true);
-    try {
-      const { lat, lng } = formatCoordinates(mapCenter.lat, mapCenter.lng);
-      const apiUrl = buildApiUrl({
-        lat,
-        lng,
-        radius: currentRadius,
+    
+    // Legacy check for traditional center/radius approach (fallback)
+    if (!useViewportApi) {
+      const currentRadius = calculateViewportRadius(bounds);
+      const currentParams = {
+        back,
         species: selectedSpecies,
-        region: currentCountry, // Update parameter name here too
-        back
-      });
-
-      debug.info('Fetching bird data:', {
-        lat,
-        lng,
         radius: currentRadius,
-        species: selectedSpecies,
-        region: currentCountry,
-        back
-      });
-
-      // Fetch notable birds concurrently if we're not already looking at rare birds
-      let notableBirdsPromise;
-      if (selectedSpecies !== SPECIES_CODES.RARE) {
-        notableBirdsPromise = fetchNotableBirds(lat, lng, currentRadius, back);
+        region: currentCountry
+      };
+      
+      if (!shouldFetchNewData(lastFetchParams, currentParams, lastFetchLocation, mapCenter)) {
+        debug.debug('Skipping fetch - within threshold (legacy method)');
+        return;
       }
-
+    }
+    
+    setLoading(true);
+    
+    try {
+      let apiUrl, debugInfo;
+      
+      // Use viewport API if enabled, otherwise fall back to center/radius
+      if (useViewportApi) {
+        apiUrl = buildViewportApiUrl(currentViewport);
+        debugInfo = { viewport: currentViewport };
+      } else {
+        const { lat, lng } = formatCoordinates(mapCenter.lat, mapCenter.lng);
+        const currentRadius = calculateViewportRadius(bounds);
+        
+        apiUrl = buildApiUrl({
+          lat,
+          lng,
+          radius: currentRadius,
+          species: selectedSpecies,
+          region: currentCountry,
+          back
+        });
+        
+        debugInfo = {
+          lat, 
+          lng, 
+          radius: currentRadius,
+          species: selectedSpecies,
+          region: currentCountry,
+          back
+        };
+      }
+      
+      debug.info('Fetching bird data:', {
+        useViewportApi,
+        ...debugInfo
+      });
+      
       const response = await fetch(apiUrl);
-
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
+      
+      // With the new API, we get both regular and notable birds in one call
       const data = await response.json();
-      // Process sightings and fetch photos in one step
-      const processedSightings = await processBirdSightings(data);
-
-      // Extract species codes from sightings to track visible species
-      const currentVisibleSpecies = new Set();
-      processedSightings.forEach(location => {
-        location.birds.forEach(bird => {
-          if (bird.speciesCode) {
-            currentVisibleSpecies.add(bird.speciesCode);
+      
+      if (useViewportApi) {
+        // Store complete data set for client-side filtering
+        setAllBirdData(data);
+        setLastFetchViewport(currentViewport);
+        
+        // Filter the data by current species selection
+        const filteredData = filterBirdDataBySpecies(data);
+        
+        // Process and display the data
+        processAndDisplayFilteredData(filteredData);
+        
+        // Update last fetch parameters for both approaches
+        setLastFetchParams({ 
+          back, 
+          species: selectedSpecies,
+          region: currentCountry 
+        });
+      } else {
+        // Legacy approach - we need to fetch notable birds separately
+        let notableBirdsPromise;
+        if (selectedSpecies !== SPECIES_CODES.RARE) {
+          const { lat, lng } = formatCoordinates(mapCenter.lat, mapCenter.lng);
+          const currentRadius = calculateViewportRadius(bounds);
+          notableBirdsPromise = fetchNotableBirds(lat, lng, currentRadius, back);
+        }
+        
+        // Process legacy data
+        const processedSightings = await processBirdSightings(data);
+        
+        // Get the current visible viewport bounds
+        const bounds = mapRef.getBounds();
+        const visibleBounds = {
+          minLat: bounds.getSouth(),
+          maxLat: bounds.getNorth(),
+          minLng: bounds.getWest(),
+          maxLng: bounds.getEast()
+        };
+        
+        // Extract species codes but ONLY for birds actually within the visible viewport
+        // This ensures "on map" actually means "visible on the map"
+        const currentVisibleSpecies = new Set();
+        processedSightings.forEach(location => {
+          // Check if this location is within the visible bounds
+          const isLocationVisible = 
+            location.lat >= visibleBounds.minLat && 
+            location.lat <= visibleBounds.maxLat &&
+            location.lng >= visibleBounds.minLng && 
+            location.lng <= visibleBounds.maxLng;
+          
+          // Only add species from visible locations
+          if (isLocationVisible) {
+            location.birds.forEach(bird => {
+              if (bird.speciesCode) {
+                currentVisibleSpecies.add(bird.speciesCode);
+              }
+            });
           }
         });
-      });
-      
-      debug.debug('Visible species on map:', {
-        count: currentVisibleSpecies.size,
-        sample: Array.from(currentVisibleSpecies).slice(0, 5)
-      });
-      
-      // Set the visible species codes first
-      setVisibleSpeciesCodes(currentVisibleSpecies);
-      
-      // Get and set notable species
-      let currentNotableSpecies;
-      if (selectedSpecies === SPECIES_CODES.RARE) {
-        // If we're looking at rare birds, all visible birds are notable
-        currentNotableSpecies = new Set([...currentVisibleSpecies]);
-      } else {
-        // Otherwise, use the results from our notable birds query
-        currentNotableSpecies = await notableBirdsPromise;
+        
+        debug.info('Species visible in viewport:', {
+          count: currentVisibleSpecies.size,
+          sample: Array.from(currentVisibleSpecies).slice(0, 3)
+        });
+        
+        // Set visible species codes - this updates the "on map" section in the dropdown
+        setVisibleSpeciesCodes(currentVisibleSpecies);
+        
+        // Get and set notable species
+        let currentNotableSpecies;
+        if (selectedSpecies === SPECIES_CODES.RARE) {
+          currentNotableSpecies = new Set([...currentVisibleSpecies]);
+        } else {
+          currentNotableSpecies = await notableBirdsPromise;
+        }
+        
+        setNotableSpeciesCodes(currentNotableSpecies);
+        setBirdSightings(processedSightings);
+        setLastFetchLocation({ lat: mapCenter.lat, lng: mapCenter.lng });
+        setLastFetchParams({ 
+          back, 
+          species: selectedSpecies, 
+          radius: calculateViewportRadius(bounds), 
+          region: currentCountry 
+        });
       }
-      
-      debug.debug('Notable species identified:', {
-        count: currentNotableSpecies.size,
-        sample: Array.from(currentNotableSpecies).slice(0, 5)
-      });
-      
-      setNotableSpeciesCodes(currentNotableSpecies);
-      setBirdSightings(processedSightings);
-      setLastFetchLocation({ lat, lng });
-      setLastFetchParams({ back, species: selectedSpecies, radius: currentRadius, region: currentCountry });
-
     } catch (error) {
       debug.error('Error fetching bird data:', error);
       alert('Error fetching bird sightings');
     } finally {
       setLoading(false);
+    }
+  };
+  
+  /**
+   * Process filtered data and update state with it
+   * @param {Array} filteredData - Bird data filtered by species
+   */
+  const processAndDisplayFilteredData = async (filteredData) => {
+    try {
+      // Process the filtered data
+      const processedSightings = await processBirdSightings(filteredData);
+      
+      // Get the current visible viewport bounds
+      const bounds = mapRef.getBounds();
+      const visibleBounds = {
+        minLat: bounds.getSouth(),
+        maxLat: bounds.getNorth(),
+        minLng: bounds.getWest(),
+        maxLng: bounds.getEast()
+      };
+      
+      // Extract visible species codes - these are species actually visible in the current viewport
+      // This is used by the SpeciesSearch component to show which birds are currently "on map"
+      const currentVisibleSpecies = new Set();
+      processedSightings.forEach(location => {
+        // Check if this location is within the visible bounds
+        const isLocationVisible = 
+          location.lat >= visibleBounds.minLat && 
+          location.lat <= visibleBounds.maxLat &&
+          location.lng >= visibleBounds.minLng && 
+          location.lng <= visibleBounds.maxLng;
+        
+        // Only add species from visible locations
+        if (isLocationVisible) {
+          location.birds.forEach(bird => {
+            if (bird.speciesCode) {
+              currentVisibleSpecies.add(bird.speciesCode);
+            }
+          });
+        }
+      });
+      
+      // Extract notable species codes
+      const currentNotableSpecies = new Set();
+      filteredData.forEach(bird => {
+        if (bird.isNotable && bird.speciesCode) {
+          currentNotableSpecies.add(bird.speciesCode);
+        }
+      });
+      
+      debug.info('Processed filtered data:', {
+        sightingLocations: processedSightings.length,
+        visibleSpecies: currentVisibleSpecies.size,
+        visibleSpeciesSample: Array.from(currentVisibleSpecies).slice(0, 3),
+        notableSpecies: currentNotableSpecies.size
+      });
+      
+      // Update state - this ensures the species search dropdown shows exactly what's in the viewport
+      setVisibleSpeciesCodes(currentVisibleSpecies);
+      setNotableSpeciesCodes(currentNotableSpecies);
+      setBirdSightings(processedSightings);
+    } catch (error) {
+      debug.error('Error processing filtered data:', error);
     }
   };
 
@@ -483,13 +760,27 @@ const BirdMap = () => {
       selectedSpecies,
       back,
       zoom,
-      hasMapRef: !!mapRef
+      hasMapRef: !!mapRef,
+      useViewportApi
     });
     if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef) {
       debug.debug('Triggering bird data fetch');
       fetchBirdData();
     }
   }, [back, selectedSpecies, mapCenter, zoom, mapRef]);
+  
+  // Effect to handle species filtering when we have viewport data
+  useEffect(() => {
+    if (useViewportApi && allBirdData && !loading) {
+      debug.info('🔄 Species changed, filtering existing data:', selectedSpecies);
+      
+      // Filter existing data without fetching
+      const filteredData = filterBirdDataBySpecies(allBirdData);
+      
+      // Process and display the filtered data
+      processAndDisplayFilteredData(filteredData);
+    }
+  }, [selectedSpecies, useViewportApi, allBirdData, loading]);
 
   // Load URL parameters on component mount
   useEffect(() => {
@@ -620,7 +911,7 @@ const BirdMap = () => {
               attribution={generateAttribution()}
               url={MAP_TILE_URL}
             />
-            <MapEvents onMoveEnd={handleMoveEnd} />
+            <MapEvents onMoveEnd={handleMoveEnd} onViewportChange={handleViewportChange} />
             <PopupInteractionHandler />
             <ZoomControl position="topright" />
             <LocationControl 
