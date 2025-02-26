@@ -31,9 +31,6 @@ const CLEANUP_INTERVAL = (parseInt(process.env.CACHE_CLEANUP_INTERVAL_MINUTES, 1
 // Get tile size from environment variable or use default (2km)
 const TILE_SIZE_KM = parseFloat(process.env.TILE_SIZE_KM || 2);
 
-// In-memory cache store for viewport-based caching (legacy)
-const viewportCache = new Map();
-
 // In-memory cache store for tile-based caching
 const tileCache = new Map();
 
@@ -184,69 +181,6 @@ function getTilesForViewport(viewport) {
   return tilesArray;
 }
 
-/**
- * Generates a viewport cache key (legacy method)
- * @param {Object} viewport - Viewport parameters
- * @param {number} viewport.minLat - Minimum latitude
- * @param {number} viewport.maxLat - Maximum latitude
- * @param {number} viewport.minLng - Minimum longitude
- * @param {number} viewport.maxLng - Maximum longitude
- * @param {string} viewport.back - Days to look back
- * @returns {string} Cache key
- */
-function generateCacheKey(viewport) {
-  // Round coordinates to reduce minor variations
-  const precision = 3;
-  const roundedViewport = {
-    minLat: parseFloat(viewport.minLat).toFixed(precision),
-    maxLat: parseFloat(viewport.maxLat).toFixed(precision),
-    minLng: parseFloat(viewport.minLng).toFixed(precision),
-    maxLng: parseFloat(viewport.maxLng).toFixed(precision),
-    back: viewport.back
-  };
-  
-  return JSON.stringify(roundedViewport);
-}
-
-/**
- * Stores data in viewport cache with expiration (legacy method)
- * @param {string} key - Cache key
- * @param {Array} data - Bird sighting data to cache
- */
-function setCache(key, data) {
-  const cacheEntry = {
-    data,
-    timestamp: Date.now(),
-    expires: Date.now() + CACHE_TTL
-  };
-  
-  viewportCache.set(key, cacheEntry);
-  debug.info(`🔵 Cache set: ${key}, entries: ${data.length}, expires in ${CACHE_TTL/1000/60} minutes`);
-}
-
-/**
- * Retrieves data from viewport cache if available and not expired (legacy method)
- * @param {string} key - Cache key
- * @returns {Array|null} Cached data or null if not found/expired
- */
-function getCache(key) {
-  if (!viewportCache.has(key)) {
-    debug.info(`🔴 Cache miss: ${key}`);
-    return null;
-  }
-  
-  const cacheEntry = viewportCache.get(key);
-  
-  // Check if expired
-  if (Date.now() > cacheEntry.expires) {
-    debug.info(`🟠 Cache expired: ${key}`);
-    viewportCache.delete(key);
-    return null;
-  }
-  
-  debug.info(`🟢 Cache hit: ${key}, age: ${(Date.now() - cacheEntry.timestamp)/1000} seconds, entries: ${cacheEntry.data.length}`);
-  return cacheEntry.data;
-}
 
 /**
  * Stores data in tile cache with expiration
@@ -422,20 +356,12 @@ function mergeTileData(tileDataArray) {
 }
 
 /**
- * Clears all expired entries from both caches
+ * Clears all expired entries from the cache
  * @returns {number} Number of entries removed
  */
 function clearExpired() {
   let removed = 0;
   const now = Date.now();
-  
-  // Clear expired viewport cache entries
-  for (const [key, entry] of viewportCache.entries()) {
-    if (now > entry.expires) {
-      viewportCache.delete(key);
-      removed++;
-    }
-  }
   
   // Clear expired tile cache entries
   for (const [key, entry] of tileCache.entries()) {
@@ -445,26 +371,23 @@ function clearExpired() {
     }
   }
   
-  debug.info(`Cleared ${removed} expired cache entries (${viewportCache.size} viewport, ${tileCache.size} tile entries remaining)`);
+  debug.info(`Cleared ${removed} expired cache entries (${tileCache.size} tile entries remaining)`);
   return removed;
 }
 
 /**
  * Clears all caches completely
- * @returns {Object} Number of entries removed by cache type
+ * @returns {Object} Number of entries removed
  */
 function clearAll() {
-  const viewportSize = viewportCache.size;
   const tileSize = tileCache.size;
   
-  viewportCache.clear();
   tileCache.clear();
   
-  debug.info(`Cleared all caches (${viewportSize} viewport, ${tileSize} tile entries removed)`);
+  debug.info(`Cleared all caches (${tileSize} tile entries removed)`);
   return {
-    viewportEntries: viewportSize,
     tileEntries: tileSize,
-    total: viewportSize + tileSize
+    total: tileSize
   };
 }
 
@@ -474,25 +397,9 @@ function clearAll() {
  */
 function getStats() {
   const now = Date.now();
-  let viewportExpired = 0;
   let tileExpired = 0;
-  let viewportTotalSize = 0;
   let tileTotalSize = 0;
   let oldestTimestamp = now;
-  
-  // Analyze viewport cache
-  for (const [key, entry] of viewportCache.entries()) {
-    if (now > entry.expires) {
-      viewportExpired++;
-    }
-    
-    // Very rough estimation of memory usage
-    viewportTotalSize += key.length + JSON.stringify(entry.data).length;
-    
-    if (entry.timestamp < oldestTimestamp) {
-      oldestTimestamp = entry.timestamp;
-    }
-  }
   
   // Analyze tile cache
   for (const [key, entry] of tileCache.entries()) {
@@ -509,13 +416,7 @@ function getStats() {
   }
   
   return {
-    totalEntries: viewportCache.size + tileCache.size,
-    viewportCache: {
-      totalEntries: viewportCache.size,
-      expiredEntries: viewportExpired,
-      validEntries: viewportCache.size - viewportExpired,
-      approximateSizeBytes: viewportTotalSize
-    },
+    totalEntries: tileCache.size,
     tileCache: {
       totalEntries: tileCache.size,
       expiredEntries: tileExpired,
@@ -524,7 +425,7 @@ function getStats() {
       tileSizeKm: TILE_SIZE_KM
     },
     oldestEntryAge: (now - oldestTimestamp) / 1000, // in seconds
-    totalSizeBytes: viewportTotalSize + tileTotalSize,
+    totalSizeBytes: tileTotalSize,
     cacheConfig: {
       ttlMinutes: CACHE_TTL / 60000,
       cleanupIntervalMinutes: CLEANUP_INTERVAL / 60000,
@@ -547,11 +448,6 @@ module.exports = {
   setTileCache,
   getTileCache,
   getMissingTiles,
-  
-  // Legacy viewport-based caching
-  generateCacheKey,
-  setCache,
-  getCache,
   
   // Cache management
   clearExpired,

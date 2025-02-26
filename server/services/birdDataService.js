@@ -22,11 +22,8 @@
 
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { debug } = require('../utils/debug');
-const { calculateViewportCenter, calculateViewportRadius } = require('../utils/viewportUtils');
+const { isValidViewport } = require('../utils/viewportUtils');
 const { 
-  generateCacheKey, 
-  getCache, 
-  setCache, 
   getTilesForViewport,
   getTileCenter,
   getTileCache,
@@ -41,11 +38,9 @@ const MAX_PARALLEL_REQUESTS = 8;
 // This is a multiplier for the tile radius to ensure we get all data at tile boundaries
 const RADIUS_BUFFER = parseFloat(process.env.TILE_RADIUS_BUFFER || 1.1);
 
-// Enable/disable tile-based caching (for testing/comparison)
-const USE_TILE_CACHING = process.env.USE_TILE_CACHING !== 'false';
 
 /**
- * Fetches bird data for a given viewport using the appropriate caching strategy
+ * Fetches bird data for a given viewport
  * @param {Object} viewport - Viewport parameters
  * @returns {Promise<Array>} Combined bird sighting data with type markers
  */
@@ -53,16 +48,7 @@ async function getBirdDataForViewport(viewport) {
   const startTime = Date.now();
   
   try {
-    let birdData;
-    
-    if (USE_TILE_CACHING) {
-      debug.info('Using tile-based caching for viewport');
-      birdData = await getTiledBirdData(viewport);
-    } else {
-      debug.info('Using legacy viewport-based caching');
-      birdData = await getLegacyBirdData(viewport);
-    }
-    
+    const birdData = await getBirdDataFromTiles(viewport);
     debug.info(`Processed viewport request with ${birdData.length} bird sightings in ${Date.now() - startTime}ms`);
     return birdData;
   } catch (error) {
@@ -72,11 +58,11 @@ async function getBirdDataForViewport(viewport) {
 }
 
 /**
- * Gets bird data using the new tile-based caching approach
+ * Gets bird data using tile-based caching
  * @param {Object} viewport - Viewport parameters
  * @returns {Promise<Array>} Combined bird sighting data
  */
-async function getTiledBirdData(viewport) {
+async function getBirdDataFromTiles(viewport) {
   const startTime = Date.now();
   
   // Get all tile IDs for this viewport
@@ -255,66 +241,6 @@ async function fetchTileData(tileId) {
   }
 }
 
-/**
- * Gets bird data using the legacy viewport-based caching approach
- * @param {Object} viewport - Viewport parameters
- * @returns {Promise<Array>} Combined bird sighting data
- */
-async function getLegacyBirdData(viewport) {
-  const startTime = Date.now();
-  const cacheKey = generateCacheKey(viewport);
-  
-  // Check cache first
-  const cachedData = getCache(cacheKey);
-  if (cachedData) {
-    debug.info(`Serving ${cachedData.length} bird sightings from cache in ${Date.now() - startTime}ms`);
-    return cachedData;
-  }
-  
-  // Cache miss, fetch from eBird API
-  debug.info('Cache miss, fetching from eBird API');
-  
-  // Calculate center and radius from viewport
-  const center = calculateViewportCenter(viewport);
-  const radius = calculateViewportRadius(viewport);
-  
-  // Prepare parameters for eBird API
-  const params = {
-    lat: center.lat,
-    lng: center.lng,
-    dist: radius,
-    back: viewport.back
-  };
-  
-  try {
-    // Fetch both regular and notable birds
-    const [recentBirds, notableBirds] = await Promise.all([
-      fetchBirdData({ ...params, species: 'recent' }),
-      fetchBirdData({ ...params, species: 'rare' })
-    ]);
-    
-    debug.debug('Received data from eBird:', {
-      recentCount: recentBirds.length,
-      notableCount: notableBirds.length
-    });
-    
-    // Mark each record with its type for client-side filtering
-    const recentBirdsMarked = recentBirds.map(bird => ({ ...bird, isNotable: false }));
-    const notableBirdsMarked = notableBirds.map(bird => ({ ...bird, isNotable: true }));
-    
-    // Combine and deduplicate (rare birds often appear in both lists)
-    const combinedData = combineAndDeduplicate(recentBirdsMarked, notableBirdsMarked);
-    
-    // Cache the results
-    setCache(cacheKey, combinedData);
-    
-    debug.info(`Fetched and cached ${combinedData.length} bird sightings in ${Date.now() - startTime}ms`);
-    return combinedData;
-  } catch (error) {
-    debug.error('Error fetching bird data:', error);
-    throw error;
-  }
-}
 
 /**
  * Combines and deduplicates bird lists, preserving notable status
