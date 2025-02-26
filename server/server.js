@@ -542,6 +542,330 @@ app.get('/api/admin/clear-expired-cache', adminAuth, (req, res) => {
 });
 
 /**
+ * HTML dashboard for cache statistics
+ * @route GET /api/admin/dashboard
+ */
+app.get('/api/admin/dashboard', adminAuth, (req, res) => {
+  const stats = getStats();
+  debug.info('Cache dashboard requested');
+  
+  // Create a simple HTML dashboard
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Bird Sightings Cache Dashboard</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          padding: 20px;
+          line-height: 1.5;
+          color: #333;
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+        h1, h2 { 
+          color: #2c3e50;
+        }
+        .dashboard {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 20px;
+          margin-bottom: 30px;
+        }
+        .chart-container {
+          background: white;
+          border-radius: 8px;
+          padding: 15px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-card {
+          background: white;
+          border-radius: 8px;
+          padding: 15px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-title {
+          font-weight: bold;
+          font-size: 0.9rem;
+          margin-bottom: 5px;
+          color: #7f8c8d;
+        }
+        .stat-value {
+          font-size: 1.8rem;
+          font-weight: bold;
+          color: #2c3e50;
+        }
+        .badge {
+          display: inline-block;
+          padding: 3px 6px;
+          border-radius: 3px;
+          font-size: 0.75rem;
+          font-weight: bold;
+          margin-left: 5px;
+        }
+        .badge-success { background: #2ecc71; color: white; }
+        .badge-warning { background: #f39c12; color: white; }
+        .badge-danger { background: #e74c3c; color: white; }
+        
+        .actions {
+          margin: 20px 0;
+        }
+        button {
+          background: #3498db;
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.9rem;
+          transition: background 0.2s;
+        }
+        button:hover { background: #2980b9; }
+        button.warning { background: #e74c3c; }
+        button.warning:hover { background: #c0392b; }
+        
+        table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        th, td {
+          padding: 8px;
+          text-align: left;
+          border-bottom: 1px solid #ddd;
+        }
+        th {
+          background-color: #f8f9fa;
+        }
+        
+        .footer {
+          margin-top: 30px;
+          font-size: 0.8rem;
+          color: #7f8c8d;
+          text-align: center;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Bird Sightings Cache Dashboard</h1>
+      
+      <div class="actions">
+        <button id="refresh-btn">Refresh Stats</button>
+        <button id="clear-btn" class="warning">Clear Expired Entries</button>
+      </div>
+      
+      <div class="dashboard">
+        <div class="stat-card">
+          <div class="stat-title">CACHE ENTRIES</div>
+          <div class="stat-value">${stats.totalEntries.toLocaleString()}</div>
+          <div>${stats.tileCache.validEntries.toLocaleString()} valid, 
+               ${stats.tileCache.expiredEntries.toLocaleString()} expired</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-title">BIRD RECORDS</div>
+          <div class="stat-value">${stats.birdStats.totalBirdRecords.toLocaleString()}</div>
+          <div>~${Math.round(stats.birdStats.averageBirdsPerTile)} per tile, max: ${stats.birdStats.maxBirdsInTile}</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-title">MEMORY USAGE</div>
+          <div class="stat-value">${stats.memoryStats.sizeInMB.toFixed(1)} MB</div>
+          <div>~${Math.round(stats.memoryStats.averageSizePerTile / 1024)} KB per tile</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-title">TILE SIZE</div>
+          <div class="stat-value">${stats.cacheConfig.tileSizeKm} km</div>
+          <div>Radius buffer: ${stats.cacheConfig.radiusBuffer}x</div>
+        </div>
+      </div>
+      
+      <div class="dashboard">
+        <div class="chart-container">
+          <canvas id="ageChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+          <canvas id="sizeChart"></canvas>
+        </div>
+      </div>
+      
+      <h2>Cache Configuration</h2>
+      <table>
+        <tr>
+          <th>Setting</th>
+          <th>Value</th>
+        </tr>
+        <tr>
+          <td>Cache TTL</td>
+          <td>${stats.cacheConfig.ttlMinutes} minutes</td>
+        </tr>
+        <tr>
+          <td>Cleanup Interval</td>
+          <td>${stats.cacheConfig.cleanupIntervalMinutes} minutes</td>
+        </tr>
+        <tr>
+          <td>Tile Size</td>
+          <td>${stats.cacheConfig.tileSizeKm} km</td>
+        </tr>
+        <tr>
+          <td>Node Version</td>
+          <td>${stats.systemInfo.nodeVersion}</td>
+        </tr>
+        <tr>
+          <td>Server Uptime</td>
+          <td>${Math.floor(stats.systemInfo.uptime / 3600)} hours, ${Math.floor((stats.systemInfo.uptime % 3600) / 60)} minutes</td>
+        </tr>
+      </table>
+      
+      <h2>Time Period Distribution</h2>
+      <table id="timeTable">
+        <tr>
+          <th>Days Back</th>
+          <th>Tiles</th>
+          <th>Birds</th>
+          <th>Avg Birds/Tile</th>
+        </tr>
+        ${Object.entries(stats.distributionStats.birdsByBack).map(([back, data]) => `
+          <tr>
+            <td>${back}</td>
+            <td>${data.count}</td>
+            <td>${data.birds}</td>
+            <td>${(data.birds / data.count).toFixed(1)}</td>
+          </tr>
+        `).join('')}
+      </table>
+      
+      <div class="footer">
+        Last updated: ${new Date().toLocaleString()}
+      </div>
+      
+      <script>
+        // Age distribution chart
+        const ageData = ${JSON.stringify(stats.ageStats.ageDistribution)};
+        new Chart(document.getElementById('ageChart'), {
+          type: 'bar',
+          data: {
+            labels: [
+              '< 1 hour', 
+              '1-3 hours', 
+              '3-6 hours', 
+              '6-12 hours', 
+              '12-24 hours', 
+              '> 24 hours'
+            ],
+            datasets: [{
+              label: 'Cache Age Distribution',
+              data: [
+                ageData.lessThan1Hour,
+                ageData.lessThan3Hours,
+                ageData.lessThan6Hours,
+                ageData.lessThan12Hours,
+                ageData.lessThan24Hours,
+                ageData.moreThan24Hours
+              ],
+              backgroundColor: [
+                '#2ecc71', // Fresh (green)
+                '#27ae60',
+                '#f1c40f', // Medium (yellow)
+                '#f39c12',
+                '#e67e22', // Older (orange)
+                '#e74c3c'  // Old (red)
+              ]
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              title: {
+                display: true,
+                text: 'Cache Age Distribution'
+              },
+              legend: {
+                display: false
+              }
+            }
+          }
+        });
+        
+        // Size distribution chart
+        const sizeData = ${JSON.stringify(stats.distributionStats.sizeDistribution)};
+        new Chart(document.getElementById('sizeChart'), {
+          type: 'pie',
+          data: {
+            labels: [
+              'Empty (0)', 
+              'Small (1-10)', 
+              'Medium (11-50)', 
+              'Large (51-200)', 
+              'Very Large (>200)'
+            ],
+            datasets: [{
+              label: 'Tile Size Distribution',
+              data: [
+                sizeData.empty,
+                sizeData.small,
+                sizeData.medium,
+                sizeData.large,
+                sizeData.veryLarge
+              ],
+              backgroundColor: [
+                '#ecf0f1', // Empty (light gray)
+                '#3498db', // Small (blue)
+                '#2980b9', // Medium (darker blue)
+                '#9b59b6', // Large (purple)
+                '#8e44ad'  // Very large (darker purple)
+              ]
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              title: {
+                display: true,
+                text: 'Birds Per Tile Distribution'
+              }
+            }
+          }
+        });
+        
+        // Button handlers
+        document.getElementById('refresh-btn').addEventListener('click', function() {
+          window.location.reload();
+        });
+        
+        document.getElementById('clear-btn').addEventListener('click', function() {
+          if (confirm('Are you sure you want to clear expired cache entries?')) {
+            this.disabled = true;
+            this.textContent = 'Clearing...';
+            
+            fetch('/api/admin/clear-expired-cache?key=${req.query.key || ''}', {
+              headers: { 'X-API-Key': '${req.headers['x-api-key'] || ''}' }
+            })
+            .then(response => response.json())
+            .then(data => {
+              alert('Cleared ' + data.removed + ' expired entries');
+              window.location.reload();
+            })
+            .catch(err => {
+              alert('Error: ' + err.message);
+              this.disabled = false;
+              this.textContent = 'Clear Expired Entries';
+            });
+          }
+        });
+      </script>
+    </body>
+    </html>
+  `;
+  
+  res.send(html);
+});
+
+/**
  * API endpoint to debug tile calculations for a given viewport
  * @route GET /api/admin/tile-debug
  */

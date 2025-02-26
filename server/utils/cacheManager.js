@@ -400,20 +400,108 @@ function getStats() {
   let tileExpired = 0;
   let tileTotalSize = 0;
   let oldestTimestamp = now;
+  let newestTimestamp = 0;
+  let totalBirdRecords = 0;
+  let maxBirdsInTile = 0;
+  let emptyTiles = 0;
+  const ageDistribution = {
+    lessThan1Hour: 0,
+    lessThan3Hours: 0,
+    lessThan6Hours: 0,
+    lessThan12Hours: 0,
+    lessThan24Hours: 0,
+    moreThan24Hours: 0
+  };
+  const sizeDistribution = {
+    empty: 0,        // 0 birds
+    small: 0,        // 1-10 birds
+    medium: 0,       // 11-50 birds
+    large: 0,        // 51-200 birds
+    veryLarge: 0     // >200 birds
+  };
+  // Track birds by back period
+  const birdsByBack = {};
+  // Track geographic distribution (simplified)
+  const tileCoordinates = [];
   
   // Analyze tile cache
   for (const [key, entry] of tileCache.entries()) {
+    // Check if expired
     if (now > entry.expires) {
       tileExpired++;
     }
     
     // Very rough estimation of memory usage
-    tileTotalSize += key.length + JSON.stringify(entry.data).length;
+    const entrySize = key.length + JSON.stringify(entry.data).length;
+    tileTotalSize += entrySize;
     
+    // Track timestamps
     if (entry.timestamp < oldestTimestamp) {
       oldestTimestamp = entry.timestamp;
     }
+    if (entry.timestamp > newestTimestamp) {
+      newestTimestamp = entry.timestamp;
+    }
+    
+    // Track age distribution
+    const ageHours = (now - entry.timestamp) / (1000 * 60 * 60);
+    if (ageHours < 1) ageDistribution.lessThan1Hour++;
+    else if (ageHours < 3) ageDistribution.lessThan3Hours++;
+    else if (ageHours < 6) ageDistribution.lessThan6Hours++;
+    else if (ageHours < 12) ageDistribution.lessThan12Hours++;
+    else if (ageHours < 24) ageDistribution.lessThan24Hours++;
+    else ageDistribution.moreThan24Hours++;
+    
+    // Count birds in tile
+    const birdCount = entry.data ? entry.data.length : 0;
+    totalBirdRecords += birdCount;
+    
+    if (birdCount > maxBirdsInTile) {
+      maxBirdsInTile = birdCount;
+    }
+    
+    if (birdCount === 0) {
+      emptyTiles++;
+      sizeDistribution.empty++;
+    } else if (birdCount <= 10) {
+      sizeDistribution.small++;
+    } else if (birdCount <= 50) {
+      sizeDistribution.medium++;
+    } else if (birdCount <= 200) {
+      sizeDistribution.large++;
+    } else {
+      sizeDistribution.veryLarge++;
+    }
+    
+    // Track back period stats
+    const [tileY, tileX, back] = key.split(':');
+    if (!birdsByBack[back]) {
+      birdsByBack[back] = { count: 0, tiles: 0, birds: 0 };
+    }
+    birdsByBack[back].count++;
+    birdsByBack[back].birds += birdCount;
+    
+    // Store coordinates for geographic distribution (simplified)
+    if (tileCache.size <= 100) { // Only if reasonable number of tiles
+      tileCoordinates.push({ 
+        lat: parseFloat(tileY), 
+        lng: parseFloat(tileX),
+        count: birdCount
+      });
+    }
   }
+  
+  // Calculate averages and percentages
+  const avgBirdsPerTile = tileCache.size > 0 ? totalBirdRecords / tileCache.size : 0;
+  const avgSizePerTile = tileCache.size > 0 ? tileTotalSize / tileCache.size : 0;
+  const hitRatio = {
+    byAge: {
+      fresh: (ageDistribution.lessThan1Hour + ageDistribution.lessThan3Hours) / 
+             (tileCache.size || 1),
+      stale: (ageDistribution.lessThan24Hours + ageDistribution.moreThan24Hours) / 
+             (tileCache.size || 1)
+    }
+  };
   
   return {
     totalEntries: tileCache.size,
@@ -422,14 +510,44 @@ function getStats() {
       expiredEntries: tileExpired,
       validEntries: tileCache.size - tileExpired,
       approximateSizeBytes: tileTotalSize,
-      tileSizeKm: TILE_SIZE_KM
+      tileSizeKm: TILE_SIZE_KM,
+      emptyTiles: emptyTiles,
+      emptyTilePercentage: tileCache.size > 0 ? (emptyTiles / tileCache.size) * 100 : 0
     },
-    oldestEntryAge: (now - oldestTimestamp) / 1000, // in seconds
-    totalSizeBytes: tileTotalSize,
+    birdStats: {
+      totalBirdRecords,
+      averageBirdsPerTile: avgBirdsPerTile,
+      maxBirdsInTile,
+      birdRecordDensity: totalBirdRecords / (tileCache.size || 1)
+    },
+    memoryStats: {
+      totalSizeBytes: tileTotalSize,
+      averageSizePerTile: avgSizePerTile,
+      sizeInMB: tileTotalSize / (1024 * 1024)
+    },
+    ageStats: {
+      oldestEntryAge: (now - oldestTimestamp) / 1000, // in seconds
+      newestEntryAge: (now - newestTimestamp) / 1000, // in seconds
+      ageDistribution
+    },
+    distributionStats: {
+      sizeDistribution,
+      birdsByBack,
+      tileCoordinates: tileCoordinates.length > 0 ? tileCoordinates : null
+    },
+    performanceStats: {
+      hitRatio
+    },
     cacheConfig: {
       ttlMinutes: CACHE_TTL / 60000,
       cleanupIntervalMinutes: CLEANUP_INTERVAL / 60000,
-      tileSizeKm: TILE_SIZE_KM
+      tileSizeKm: TILE_SIZE_KM,
+      radiusBuffer: parseFloat(process.env.TILE_RADIUS_BUFFER || 1.05)
+    },
+    systemInfo: {
+      nodeVersion: process.version,
+      timestamp: now,
+      uptime: process.uptime()
     }
   };
 }
