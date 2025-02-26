@@ -62,7 +62,7 @@ import {
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
-import { FadeNotification, LoadingOverlay } from '../components/ui/Notifications';
+import { LoadingOverlay } from '../components/ui/Notifications';
 import SpeciesSearch from '../components/ui/SpeciesSearch';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
@@ -195,7 +195,6 @@ const BirdMap = () => {
   const [selectedSpecies, setSelectedSpecies] = useState(DEFAULT_MAP_PARAMS.species);
   const [back, setBack] = useState(DEFAULT_MAP_PARAMS.back);
   const [zoom, setZoom] = useState(null);
-  const [showNotification, setShowNotification] = useState(true);
   const [isMapAnimating, setIsMapAnimating] = useState(false);
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
@@ -896,11 +895,6 @@ const BirdMap = () => {
   loadUrlParams();
 }, [updateRegionSpecies]);
 
-  // Show notification only once on initial mount
-  useEffect(() => {
-    debug.debug('Initializing notification state');
-    setShowNotification(true);
-  }, []);
 
   return (
     <div style={LAYOUT_STYLES.container}>
@@ -1007,7 +1001,6 @@ const BirdMap = () => {
                 mapRef={mapRef}
               />
             ))}
-            {showNotification && <FadeNotification />}
             {loading && <LoadingOverlay />}
           </MapContainer>
         )}
