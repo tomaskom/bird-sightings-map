@@ -57,7 +57,8 @@ import {
   DAYS_BACK_OPTIONS,
   SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
-  generateAttribution
+  generateAttribution,
+  MAP_ZOOM_CONSTRAINTS
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
@@ -901,6 +902,8 @@ const BirdMap = () => {
             updateWhenIdle={true}
             center={[urlParams.lat, urlParams.lng]}
             zoom={urlParams.zoom}
+            minZoom={MAP_ZOOM_CONSTRAINTS.MIN_ZOOM}
+            maxZoom={MAP_ZOOM_CONSTRAINTS.MAX_ZOOM}
             style={LAYOUT_STYLES.map}
             zoomControl={false}
             ref={(ref) => {
