@@ -863,7 +863,6 @@ app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
     // Get configuration
     const tileSizeKm = parseFloat(process.env.TILE_SIZE_KM || 2);
     const radiusBuffer = parseFloat(process.env.TILE_RADIUS_BUFFER || 1.1);
-    const useTileCaching = process.env.USE_TILE_CACHING !== 'false';
     
     debug.perf(`Tile debug processing completed in ${Date.now() - startTime}ms`);
     
@@ -872,7 +871,6 @@ app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
       config: {
         tileSizeKm,
         radiusBuffer,
-        useTileCaching,
         maxLatitude: 85 // Limit used to avoid pole issues
       },
       corners,

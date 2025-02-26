@@ -355,10 +355,11 @@ EBIRD_API_KEY          # Required: Your eBird API key
 PORT                   # Optional: Port to run the server on (default: 3000)
 ALLOWED_ORIGINS        # Required: Comma-separated list of allowed origins for CORS
 SERVER_DEBUG_LEVEL     # Optional: Debug level (0-4, default: 1)
-ADMIN_API_KEY          # Optional: API key for admin endpoints
+ADMIN_API_KEY          # Recommended in deployment: API key for admin endpoints
 CACHE_TTL              # Optional: Cache time-to-live in milliseconds (default: 3600000)
 TILE_SIZE_KM           # Optional: Size of map tiles in kilometers (default: 2)
 TILE_RADIUS_BUFFER     # Optional: Buffer multiplier for tile radius (default: 1.1)
+CACHE_CLEANUP_INTERVAL_MINUTES # Optional: Interval for automatic cache cleanup (default: 15)
 ```
 
 ## Acknowledgments
