@@ -25,6 +25,15 @@
 const DEBUG_LEVEL = parseInt(process.env.SERVER_DEBUG_LEVEL || '0');
 
 /**
+ * Format date to a more readable format for logs
+ * @param {Date} date - Date to format
+ * @returns {string} Formatted date string
+ */
+function formatDate(date) {
+  return date.toISOString().replace('T', ' ').substring(0, 19);
+}
+
+/**
  * Debug utility object with leveled logging functions
  * @type {Object}
  * @property {Function} error - Logs error messages when debug level >= 1
@@ -33,10 +42,23 @@ const DEBUG_LEVEL = parseInt(process.env.SERVER_DEBUG_LEVEL || '0');
  * @property {Function} debug - Logs debug messages when debug level >= 4
  */
 const debug = {
-  error: (...args) => DEBUG_LEVEL >= 1 && console.error(new Date(), '[ERROR]', ...args),
-  warn: (...args) => DEBUG_LEVEL >= 2 && console.warn(new Date(), '[WARN]', ...args),
-  info: (...args) => DEBUG_LEVEL >= 3 && console.info(new Date(), '[INFO]', ...args),
-  debug: (...args) => DEBUG_LEVEL >= 4 && console.log(new Date(), '[DEBUG]', ...args)
+  error: (...args) => DEBUG_LEVEL >= 1 && console.error(formatDate(new Date()), '❌ [ERROR]', ...args),
+  warn: (...args) => DEBUG_LEVEL >= 2 && console.warn(formatDate(new Date()), '⚠️ [WARN]', ...args),
+  info: (...args) => DEBUG_LEVEL >= 3 && console.info(formatDate(new Date()), 'ℹ️ [INFO]', ...args),
+  debug: (...args) => DEBUG_LEVEL >= 4 && console.log(formatDate(new Date()), '🔍 [DEBUG]', ...args),
+  
+  // Shorthand for common debug situations
+  request: (...args) => DEBUG_LEVEL >= 3 && console.info(formatDate(new Date()), '📥 [REQUEST]', ...args),
+  response: (...args) => DEBUG_LEVEL >= 3 && console.info(formatDate(new Date()), '📤 [RESPONSE]', ...args),
+  
+  // Performance timing logs
+  perf: (...args) => DEBUG_LEVEL >= 3 && console.info(formatDate(new Date()), '⏱️ [PERF]', ...args),
+  
+  // Cache-specific debug
+  cache: (...args) => DEBUG_LEVEL >= 3 && console.info(formatDate(new Date()), '📦 [CACHE]', ...args),
+  
+  // Tile-specific debug
+  tile: (...args) => DEBUG_LEVEL >= 3 && console.info(formatDate(new Date()), '🧩 [TILE]', ...args),
 };
 
 module.exports = { debug };

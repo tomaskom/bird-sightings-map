@@ -33,7 +33,14 @@ const { debug } = require('./utils/debug');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { getBirdDataForViewport } = require('./services/birdDataService');
 const { isValidViewport } = require('./utils/viewportUtils');
-const { getStats, clearExpired } = require('./utils/cacheManager');
+const { 
+  getStats, 
+  clearExpired,
+  getTilesForViewport,
+  getTileCenter,
+  getTileId,
+  getTileCache
+} = require('./utils/cacheManager');
 
 // Initialize Express app
 const app = express();
@@ -508,6 +515,98 @@ app.get('/api/admin/clear-expired-cache', (req, res) => {
   const removed = clearExpired();
   debug.info(`Manually cleared ${removed} expired cache entries`);
   res.json({ success: true, removed });
+});
+
+/**
+ * API endpoint to debug tile calculations for a given viewport
+ * @route GET /api/admin/tile-debug
+ */
+app.get('/api/admin/tile-debug', (req, res) => {
+  const { minLat, maxLat, minLng, maxLng, back = '7' } = req.query;
+  
+  debug.tile('Tile debug request:', { minLat, maxLat, minLng, maxLng, back });
+  
+  if (!minLat || !maxLat || !minLng || !maxLng || 
+      isNaN(parseFloat(minLat)) || isNaN(parseFloat(maxLat)) || 
+      isNaN(parseFloat(minLng)) || isNaN(parseFloat(maxLng))) {
+    debug.warn('Invalid viewport parameters for tile debug');
+    return res.status(400).json({ error: 'Invalid viewport parameters' });
+  }
+  
+  const viewport = {
+    minLat: parseFloat(minLat),
+    maxLat: parseFloat(maxLat),
+    minLng: parseFloat(minLng),
+    maxLng: parseFloat(maxLng),
+    back
+  };
+  
+  try {
+    const startTime = Date.now();
+    
+    const tileIds = getTilesForViewport(viewport);
+    debug.tile(`Generated ${tileIds.length} tiles for viewport`);
+    
+    const cacheHits = tileIds.filter(id => getTileCache(id)).length;
+    debug.cache(`${cacheHits}/${tileIds.length} tiles are in cache`);
+    
+    const tileCenters = tileIds.map(id => ({
+      tileId: id,
+      center: getTileCenter(id),
+      inCache: !!getTileCache(id)
+    }));
+    
+    // Calculate the corners of the viewport and their tiles
+    const corners = {
+      northWest: {
+        lat: viewport.maxLat, 
+        lng: viewport.minLng,
+        tileId: getTileId(viewport.maxLat, viewport.minLng, viewport.back)
+      },
+      northEast: {
+        lat: viewport.maxLat, 
+        lng: viewport.maxLng,
+        tileId: getTileId(viewport.maxLat, viewport.maxLng, viewport.back)
+      },
+      southWest: {
+        lat: viewport.minLat, 
+        lng: viewport.minLng,
+        tileId: getTileId(viewport.minLat, viewport.minLng, viewport.back)
+      },
+      southEast: {
+        lat: viewport.minLat, 
+        lng: viewport.maxLng,
+        tileId: getTileId(viewport.minLat, viewport.maxLng, viewport.back)
+      }
+    };
+    
+    // Get configuration
+    const tileSizeKm = parseFloat(process.env.TILE_SIZE_KM || 2);
+    const radiusBuffer = parseFloat(process.env.TILE_RADIUS_BUFFER || 1.1);
+    const useTileCaching = process.env.USE_TILE_CACHING !== 'false';
+    
+    debug.perf(`Tile debug processing completed in ${Date.now() - startTime}ms`);
+    
+    const result = {
+      viewport,
+      config: {
+        tileSizeKm,
+        radiusBuffer,
+        useTileCaching,
+        maxLatitude: 85 // Limit used to avoid pole issues
+      },
+      corners,
+      tileCount: tileIds.length,
+      cacheHits,
+      tiles: tileCenters
+    };
+    
+    debug.response('Sending tile debug response');
+    res.json(result);
+  } catch (error) {
+    debug.error('Error in tile debug endpoint:', error);
+    res.status(500).json({ error: 'Error processing tile debug request' });
+  }
 });
 
 // Handle React routing
