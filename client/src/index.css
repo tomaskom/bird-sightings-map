@@ -17,11 +17,13 @@ body {
 }
 
 /* Optimized marker styling using CSS classes instead of inline styles */
-.multi-bird-icon .pin-container {
+.multi-bird-icon .pin-container,
+.single-notable-bird-icon .pin-container {
   position: relative;
 }
 
-.multi-bird-icon .pin-icon {
+.multi-bird-icon .pin-icon,
+.single-notable-bird-icon .pin-icon {
   width: 25px;
   height: 41px;
   background-image: url('/node_modules/leaflet/dist/images/marker-icon.png');
@@ -49,15 +51,16 @@ body {
   box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 
-.multi-bird-icon .notable-badge {
+.multi-bird-icon .notable-badge,
+.single-notable-bird-icon .notable-badge {
   position: absolute;
-  bottom: 3px;
-  left: -3px;
+  bottom: 5px;
+  left: 0px;
   background-color: #BE123C;
   color: white;
   border-radius: 50%;
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   display: flex;
   align-items: center;
   justify-content: center;

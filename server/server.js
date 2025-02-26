@@ -31,6 +31,9 @@ const express = require('express');
 const cors = require('cors');
 const { debug } = require('./utils/debug');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const { getBirdDataForViewport } = require('./services/birdDataService');
+const { isValidViewport } = require('./utils/viewportUtils');
+const { getStats, clearExpired } = require('./utils/cacheManager');
 
 // Initialize Express app
 const app = express();
@@ -40,7 +43,8 @@ const port = process.env.PORT || 3000;
 debug.info('Server initializing with config:', {
   apiKey: process.env.EBIRD_API_KEY ? 'Present' : 'Missing',
   origins: process.env.ALLOWED_ORIGINS,
-  port: port
+  port: port,
+  cacheTtl: process.env.CACHE_TTL_MINUTES || '240 (default)'
 });
 
 // CORS configuration
@@ -449,6 +453,61 @@ app.get('/api/reverse-geocode', geocodeLimiter, async (req, res) => {
       details: error.message 
     });
   }
+});
+
+/**
+ * Handles bird sighting requests based on viewport coordinates
+ * Calculates appropriate radius and uses caching for efficiency
+ * Returns both regular and rare birds to allow client-side filtering
+ * @route GET /api/birds/viewport
+ */
+app.get('/api/birds/viewport', async (req, res) => {
+  debug.info('Received viewport-based bird sighting request:', req.query);
+  
+  try {
+    const { minLat, maxLat, minLng, maxLng, back = '7' } = req.query;
+    
+    // Create viewport object
+    const viewport = {
+      minLat,
+      maxLat,
+      minLng,
+      maxLng,
+      back
+    };
+    
+    // Validate viewport parameters
+    if (!isValidViewport(viewport)) {
+      return res.status(400).json({ error: 'Invalid viewport parameters' });
+    }
+    
+    // Get bird data for this viewport (both regular and rare)
+    const data = await getBirdDataForViewport(viewport);
+    res.json(data);
+  } catch (error) {
+    debug.error('Error handling viewport bird request:', error.message);
+    res.status(500).json({ error: 'Failed to fetch bird data' });
+  }
+});
+
+/**
+ * API endpoint for cache statistics (admin use)
+ * @route GET /api/admin/cache-stats
+ */
+app.get('/api/admin/cache-stats', (req, res) => {
+  const stats = getStats();
+  debug.info('Cache stats requested:', stats);
+  res.json(stats);
+});
+
+/**
+ * API endpoint for manually clearing expired cache entries
+ * @route GET /api/admin/clear-expired-cache
+ */
+app.get('/api/admin/clear-expired-cache', (req, res) => {
+  const removed = clearExpired();
+  debug.info(`Manually cleared ${removed} expired cache entries`);
+  res.json({ success: true, removed });
 });
 
 // Handle React routing

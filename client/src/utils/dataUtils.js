@@ -192,7 +192,7 @@ export const fetchRegionSpecies = async (regionCode) => {
 };
 
 /**
- * Builds the API URL for fetching bird sightings
+ * Builds the API URL for fetching bird sightings using the legacy center+radius approach
  * @param {Object} params - Search parameters
  * @param {number} params.lat - Latitude
  * @param {number} params.lng - Longitude
@@ -217,6 +217,28 @@ export const buildApiUrl = (params) => {
   }
 
   return `${import.meta.env.VITE_API_URL}/api/birds?${searchParams}`;
+};
+
+/**
+ * Builds the API URL for fetching bird sightings based on viewport coordinates
+ * @param {Object} viewport - Viewport parameters
+ * @param {number} viewport.minLat - Minimum latitude
+ * @param {number} viewport.maxLat - Maximum latitude
+ * @param {number} viewport.minLng - Minimum longitude
+ * @param {number} viewport.maxLng - Maximum longitude
+ * @param {string} viewport.back - Number of days to look back
+ * @returns {string} Formatted API URL with query parameters
+ */
+export const buildViewportApiUrl = (viewport) => {
+  const searchParams = new URLSearchParams({
+    minLat: viewport.minLat.toString(),
+    maxLat: viewport.maxLat.toString(),
+    minLng: viewport.minLng.toString(),
+    maxLng: viewport.maxLng.toString(),
+    back: viewport.back.toString()
+  });
+
+  return `${import.meta.env.VITE_API_URL}/api/birds/viewport?${searchParams}`;
 };
 
 /**
