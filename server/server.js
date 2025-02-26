@@ -195,63 +195,7 @@ const fetchReverseGeocoding = async (lat, lon) => {
   }
 };
 
-/**
- * Fetch bird sightings from eBird API
- * @param {Object} query Request query parameters
- * @returns {Promise<Object>} Bird sighting data
- */
-const fetchBirdData = async (query) => {
-  const { lat, lng, dist, species = 'recent', back = '7' } = query;
-  const baseUrl = 'https://api.ebird.org/v2/data/obs/geo';
-
-  let endpoint;
-  let speciesParam = '';
-
-  if (species === 'rare') {
-    endpoint = 'recent/notable';
-  } else {
-    endpoint = 'recent';
-    if (species !== 'recent') {
-      endpoint = `recent/${species}`;
-    }
-  }
-
-  const url = `${baseUrl}/${endpoint}?lat=${lat}&lng=${lng}&dist=${dist}&detail=simple&hotspot=false&back=${back}`;
-
-  debug.debug('Constructing eBird request:', {
-    endpoint,
-    species,
-    coordinates: { lat, lng },
-    distance: dist,
-    lookback: back
-  });
-
-  const response = await fetch(url, {
-    headers: {
-      'x-ebirdapitoken': process.env.EBIRD_API_KEY
-    }
-  });
-
-  debug.info('eBird API response status:', response.status);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    debug.error('eBird API error:', errorText);
-    throw new Error('eBird API request failed');
-  }
-
-  const responseText = await response.text();
-  debug.debug('eBird raw response:', responseText);
-
-  try {
-    const data = JSON.parse(responseText);
-    debug.info('Successfully parsed bird records:', data.length);
-    return data;
-  } catch (error) {
-    debug.error('Failed to parse eBird response:', error);
-    throw new Error('Invalid response format from eBird API');
-  }
-};
+// Legacy fetchBirdData function removed - now using the implementation in birdDataService.js
 
 /**
  * Fetches region species list from eBird API
@@ -383,18 +327,6 @@ const fetchRegionInfo = async (regionCode) => {
 
 
 // API Routes
-app.get('/api/birds', async (req, res) => {
-  debug.info('Received bird sighting request:', req.query);
-
-  try {
-    const data = await fetchBirdData(req.query);
-    res.json(data);
-  } catch (error) {
-    debug.error('Error handling bird request:', error.message);
-    res.status(500).json({ error: 'Failed to fetch bird data' });
-  }
-});
-
 
 app.get('/api/region-species/:regionCode', async (req, res) => {
   const { regionCode } = req.params;

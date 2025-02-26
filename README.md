@@ -172,21 +172,6 @@ GET /api/birds/viewport?minLat=36.9&maxLat=37.1&minLng=-122.1&maxLng=-121.9&back
 
 This endpoint uses a tile-based caching system to efficiently fetch and store data. It divides the viewport into standard map tiles and combines cached data with fresh requests as needed. The API will return both regular and notable birds in a single response, with each record marked with an `isNotable` flag for client-side filtering.
 
-#### GET /api/birds (Legacy)
-Fetches bird sightings from eBird API using a single point and radius.
-
-Parameters:
-- `lat` (required): Latitude of the search center
-- `lng` (required): Longitude of the search center
-- `dist` (optional): Search radius in kilometers
-- `species` (optional): Species code or special filter ('recent' or 'rare')
-- `back` (optional): Number of days to look back
-
-Example request:
-```bash
-GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&species=recent&back=7
-```
-
 #### GET /api/region-species/:regionCode
 Fetches species list for a specific eBird region.
 
