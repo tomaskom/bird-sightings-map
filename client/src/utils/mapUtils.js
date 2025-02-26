@@ -28,6 +28,9 @@ import { debug } from './debug';
 import { COLORS } from '../styles/colors';
 import { MARKER_STYLES } from '../styles/layout';
 
+// Cache for bird count icons to prevent recreation on every render
+const birdIconCache = new Map();
+
 /**
  * Default Leaflet icon configuration for single bird sightings
  * @type {L.Icon}
@@ -39,8 +42,29 @@ export const DefaultIcon = L.icon({
   iconAnchor: [12, 41]
 });
 
-// Cache for bird count icons to prevent recreation on every render
-const birdIconCache = new Map();
+/**
+ * Creates a div icon for a single notable bird sighting
+ * @returns {L.DivIcon} Custom Leaflet divIcon for notable single bird
+ */
+export const createNotableBirdIcon = () => {
+  const cacheKey = 'single-notable';
+  if (birdIconCache.has(cacheKey)) {
+    return birdIconCache.get(cacheKey);
+  }
+
+  const newIcon = L.divIcon({
+    className: 'single-notable-bird-icon',
+    html: `<div class="pin-container">
+            <div class="pin-icon"></div>
+            <div class="notable-badge"></div>
+          </div>`,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41]
+  });
+
+  birdIconCache.set(cacheKey, newIcon);
+  return newIcon;
+};
 
 /**
  * Creates a custom div icon for locations with multiple bird sightings
@@ -64,7 +88,7 @@ export const createMultiBirdIcon = (birdCount, hasNotableBirds = false) => {
     html: `<div class="pin-container">
              <div class="pin-icon"></div>
              <div class="count-badge">${displayCount}</div>
-             ${hasNotableBirds ? '<div class="notable-badge">!</div>' : ''}
+             ${hasNotableBirds ? '<div class="notable-badge"></div>' : ''}
            </div>`,
     iconSize: [25, 41],
     iconAnchor: [12, 41]

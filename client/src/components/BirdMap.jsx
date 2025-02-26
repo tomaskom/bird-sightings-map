@@ -33,6 +33,7 @@ import { debug } from '../utils/debug';
 import {
   DefaultIcon,
   createMultiBirdIcon,
+  createNotableBirdIcon,
   initializeMapIcons,
   calculateViewportRadius,
   shouldFetchNewData,
@@ -927,7 +928,9 @@ const BirdMap = () => {
                       location.birds.length, 
                       location.birds.some(bird => notableSpeciesCodes.has(bird.speciesCode))
                     ) 
-                  : DefaultIcon}
+                  : (location.birds.length === 1 && notableSpeciesCodes.has(location.birds[0].speciesCode))
+                    ? createNotableBirdIcon()
+                    : DefaultIcon}
                 notableSpeciesCodes={notableSpeciesCodes}
                 onSpeciesSelect={handleSpeciesSelect}
                 mapRef={mapRef}
