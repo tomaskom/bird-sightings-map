@@ -23,53 +23,7 @@
 
 import _ from 'lodash';
 import { debug } from './debug';
-import { SPECIES_CODES } from './mapconstants';
 
-/**
- * Fetches notable/rare birds for a given location
- * @param {number} lat - Latitude 
- * @param {number} lng - Longitude
- * @param {number} radius - Search radius in kilometers
- * @param {string} back - Days to look back
- * @returns {Promise<Set<string>>} Set of notable species codes
- */
-export const fetchNotableBirds = async (lat, lng, radius, back) => {
-  try {
-    const apiUrl = buildApiUrl({
-      lat,
-      lng, 
-      radius,
-      species: SPECIES_CODES.RARE,
-      back
-    });
-    
-    debug.debug('Fetching notable birds for location', { lat, lng, radius });
-    const response = await fetch(apiUrl);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const notableCodes = new Set();
-    
-    data.forEach(bird => {
-      if (bird.speciesCode && bird.obsValid) {
-        notableCodes.add(bird.speciesCode);
-      }
-    });
-    
-    debug.debug('Found notable species', { 
-      count: notableCodes.size, 
-      sample: Array.from(notableCodes).slice(0, 5) 
-    });
-    
-    return notableCodes;
-  } catch (error) {
-    debug.error('Error fetching notable birds:', error);
-    return new Set();
-  }
-};
 
 /**
  * Fetches bird photos from the BirdWeather API for given species
@@ -191,33 +145,6 @@ export const fetchRegionSpecies = async (regionCode) => {
   }
 };
 
-/**
- * Builds the API URL for fetching bird sightings using the legacy center+radius approach
- * @param {Object} params - Search parameters
- * @param {number} params.lat - Latitude
- * @param {number} params.lng - Longitude
- * @param {number} params.radius - Search radius in kilometers
- * @param {string} params.species - Species code, or 'rare' or 'recent'
- * @param {string} params.region - Region code (country or subregion)
- * @param {number} params.back - Number of days to look back
- * @returns {string} Formatted API URL with query parameters
- */
-export const buildApiUrl = (params) => {
-  const searchParams = new URLSearchParams({
-    lat: params.lat.toString(),
-    lng: params.lng.toString(),
-    dist: (params.radius + 0.3).toFixed(1),
-    species: params.species,
-    back: params.back.toString()
-  });
-
-  // Add region parameter if available (for future filtering support)
-  if (params.region) {
-    searchParams.append('region', params.region);
-  }
-
-  return `${import.meta.env.VITE_API_URL}/api/birds?${searchParams}`;
-};
 
 /**
  * Builds the API URL for fetching bird sightings based on viewport coordinates
