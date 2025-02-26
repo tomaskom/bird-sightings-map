@@ -31,6 +31,8 @@ An interactive web application that displays bird sightings on a map using data 
 - Express.js backend with eBird API integration
 - URL parameter support for sharing specific views
 - Configurable search radius based on zoom level
+- Tile-based caching system for optimized API requests and reduced eBird API usage
+- Secure admin endpoints for cache monitoring and management
 
 ## Prerequisites
 
@@ -60,6 +62,8 @@ EBIRD_API_KEY=your_api_key_here
 PORT=3000  # Optional, defaults to 3000
 ALLOWED_ORIGINS=http://localhost:5173
 SERVER_DEBUG_LEVEL=1
+ADMIN_API_KEY=your_admin_key_here  # For accessing admin endpoints
+CACHE_TTL=3600000  # Cache time-to-live in milliseconds (default: 1 hour)
 ```
 
 4. Create a `.env` file in the `bird-sightings/client` directory and add the API URL:
@@ -124,8 +128,12 @@ npm run dev
 ├── server/                      # Backend
 │   ├── server.js                # Express server with API endpoints
 │   ├── .env                     # Server environment variables
+│   ├── services/
+│   │   └── birdDataService.js   # Service for fetching and caching bird data
 │   ├── utils/
-│   │   └── debug.js             # Server debug logging utilities
+│   │   ├── cacheManager.js      # Tile-based caching system
+│   │   ├── debug.js             # Server debug logging utilities
+│   │   └── viewportUtils.js     # Utilities for viewport calculations
 │   └── ...
 └── ...
 ```
@@ -142,23 +150,27 @@ The server.js server provides:
 - Error handling and logging
 - Support for both common and rare bird sightings
 - Configurable time window for sightings
+- Tile-based caching system for efficient data retrieval and reduced API calls
+- API key-protected admin endpoints for monitoring and managing the cache
 
 ### API Endpoints
 
-#### GET /api/birds
-Fetches bird sightings from eBird API.
+#### GET /api/birds/viewport
+Fetches bird sightings from eBird API using map viewport coordinates.
 
 Parameters:
-- `lat` (required): Latitude of the search center
-- `lng` (required): Longitude of the search center
-- `dist` (optional): Search radius in kilometers
-- `species` (optional): Species code or special filter ('recent' or 'rare')
+- `minLat` (required): Southern boundary latitude of the viewport
+- `maxLat` (required): Northern boundary latitude of the viewport
+- `minLng` (required): Western boundary longitude of the viewport
+- `maxLng` (required): Eastern boundary longitude of the viewport
 - `back` (optional): Number of days to look back
 
 Example request:
 ```bash
-GET /api/birds?lat=36.9741&lng=-122.0308&dist=25&species=recent&back=7
+GET /api/birds/viewport?minLat=36.9&maxLat=37.1&minLng=-122.1&maxLng=-121.9&back=7
 ```
+
+This endpoint uses a tile-based caching system to efficiently fetch and store data. It divides the viewport into standard map tiles and combines cached data with fresh requests as needed. The API will return both regular and notable birds in a single response, with each record marked with an `isNotable` flag for client-side filtering.
 
 #### GET /api/region-species/:regionCode
 Fetches species list for a specific eBird region.
@@ -194,6 +206,22 @@ Example request:
 GET /api/reverse-geocode?lat=36.9741&lon=-122.0308
 ```
 
+#### Admin Endpoints
+
+These endpoints require API key authentication:
+
+#### GET /api/admin/cache-stats
+Returns detailed statistics about the tile cache system.
+
+#### GET /api/admin/clear-expired-cache
+Manually clears expired cache entries and returns the number of removed items.
+
+#### GET /api/admin/dashboard
+Interactive HTML dashboard for monitoring cache performance with visualizations.
+
+#### GET /api/admin/tile-debug
+Debug tool for visualizing how a viewport is divided into tiles.
+
 ## Dependencies
 
 ### Frontend
@@ -209,6 +237,7 @@ GET /api/reverse-geocode?lat=36.9741&lon=-122.0308
 - node-fetch
 - dotenv
 - express-rate-limit
+- chart.js (for admin dashboard)
 
 ## Component Structure
 
@@ -285,6 +314,8 @@ The taxonomy data provides the foundation for species filtering, display, and or
 
 ## Performance Optimizations
 
+- Tile-based caching system for efficient bird data retrieval
+- Background tile fetching for improved user experience
 - Memoized components to prevent unnecessary re-renders
 - Clustered markers for locations with multiple sightings
 - Lazy loading of popup content and photos
@@ -294,6 +325,9 @@ The taxonomy data provides the foundation for species filtering, display, and or
 - Dynamic search radius based on viewport size
 - Rate limiting for geocoding API requests
 - Server-side error handling with detailed logging
+- Cache statistics dashboard for monitoring and optimization
+- Automatic cache expiration with configurable TTL (time-to-live)
+- Parallel requests with smart prioritization of center tiles
 
 ## Contributing
 
@@ -312,9 +346,26 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.
 
+## Server Configuration
+
+The server can be configured with the following environment variables:
+
+```
+EBIRD_API_KEY          # Required: Your eBird API key
+PORT                   # Optional: Port to run the server on (default: 3000)
+ALLOWED_ORIGINS        # Required: Comma-separated list of allowed origins for CORS
+SERVER_DEBUG_LEVEL     # Optional: Debug level (0-4, default: 1)
+ADMIN_API_KEY          # Recommended in deployment: API key for admin endpoints
+CACHE_TTL              # Optional: Cache time-to-live in milliseconds (default: 3600000)
+TILE_SIZE_KM           # Optional: Size of map tiles in kilometers (default: 2)
+TILE_RADIUS_BUFFER     # Optional: Buffer multiplier for tile radius (default: 1.1)
+CACHE_CLEANUP_INTERVAL_MINUTES # Optional: Interval for automatic cache cleanup (default: 15)
+```
+
 ## Acknowledgments
 
 - Data provided by [eBird](https://ebird.org)
 - Map tiles from [OpenStreetMap](https://www.openstreetmap.org)
 - Photos provided by [BirdWeather](https://birdweather.com)
 - Leaflet mapping library and plugins
+- Chart.js for admin dashboard visualizations

@@ -71,6 +71,19 @@ export const DEFAULT_MAP_PARAMS = {
 export const REGION_BUFFER_DISTANCE = 25;
 
 /**
+* Map zoom constraints to prevent excessive data loading
+* @type {Object}
+* @property {number} MIN_ZOOM - Minimum zoom level (smaller number = more zoomed out)
+* @property {number} MAX_ZOOM - Maximum zoom level (larger number = more zoomed in)
+* @property {number} MAX_VIEWPORT_KM - Maximum viewport dimension in kilometers
+*/
+export const MAP_ZOOM_CONSTRAINTS = {
+  MIN_ZOOM: 9, // Prevents zooming out too far (limit ~50km viewport)
+  MAX_ZOOM: 18,
+  MAX_VIEWPORT_KM: 50
+};
+
+/**
 * Configuration object defining attribution links and metadata
 * @type {Object.<string, {url: string, text: string, internal?: boolean}>}
 */
