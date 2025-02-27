@@ -56,7 +56,7 @@ export const BirdPopupContent = memo(({ birds, notableSpeciesCodes = new Set(), 
          <BirdEntry
            key={`${bird.speciesCode}-${birdIndex}`}
            bird={bird}
-           isNotable={bird.speciesCode && notableSpeciesCodes.has(bird.speciesCode)}
+           isNotable={bird.isNotable}
            isLast={birdIndex === birds.length - 1}
            onPhotoClick={() => setSelectedPhoto(bird.fullPhotoUrl)}
            onNameClick={() => onBirdSelect && onBirdSelect(bird)}

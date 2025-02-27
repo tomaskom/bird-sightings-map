@@ -603,9 +603,23 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
         </div>
         
         <div class="stat-card">
+          <div class="stat-title">COMPRESSION</div>
+          <div class="stat-value">${stats.compressionStats?.compressionRatio || '0%'}</div>
+          <div>${stats.compressionStats?.totalCompressedBirds.toLocaleString() || 0} records (compressed from ${stats.compressionStats?.totalOriginalBirds.toLocaleString() || 0})</div>
+        </div>
+        
+        <div class="stat-card">
           <div class="stat-title">MEMORY USAGE</div>
           <div class="stat-value">${stats.memoryStats.sizeInMB.toFixed(1)} MB</div>
           <div>~${Math.round(stats.memoryStats.averageSizePerTile / 1024)} KB per tile</div>
+        </div>
+      </div>
+      
+      <div class="dashboard">
+        <div class="stat-card">
+          <div class="stat-title">CHECKLISTS PER RECORD</div>
+          <div class="stat-value">${stats.compressionStats?.avgSubIdsPerBird || '0'}</div>
+          <div>Average number of checklists per compressed bird record</div>
         </div>
         
         <div class="stat-card">
