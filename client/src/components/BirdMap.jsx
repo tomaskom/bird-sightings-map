@@ -269,6 +269,11 @@ const BirdMap = () => {
       return;
     }
 
+    // Close any open popups when changing species filter
+    if (mapRef) {
+      mapRef.closePopup();
+    }
+
     setSelectedSpecies(speciesCode);
     
     if (mapRef) {
@@ -298,6 +303,9 @@ const BirdMap = () => {
     if (!searchInput.trim() || !mapRef) return;
   
     debug.debug('Initiating location search for:', searchInput);
+  
+    // Close any open popups before starting the search
+    mapRef.closePopup();
   
     if (inputRef.current) {
       inputRef.current.blur();
@@ -339,6 +347,12 @@ const BirdMap = () => {
   const handleDaysChange = (e) => {
     const newDays = e.target.value;
     debug.debug('Changing days back to:', newDays);
+    
+    // Close any open popups when changing days filter
+    if (mapRef) {
+      mapRef.closePopup();
+    }
+    
     setBack(newDays);
     if (mapRef) {
       updateUrlParams({

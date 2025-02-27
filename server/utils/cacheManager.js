@@ -502,6 +502,10 @@ function getStats() {
   let totalOriginalBirds = 0; // For compression stats
   let totalCompressedBirds = 0; // For compression stats
   
+  // Track species and locations
+  const speciesStats = new Map(); // Track species frequency
+  const locationStats = new Map(); // Track location frequency (by lat/lng rounded to 2 decimal places)
+  
   const ageDistribution = {
     lessThan1Hour: 0,
     lessThan3Hours: 0,
@@ -556,10 +560,58 @@ function getStats() {
     totalCompressedBirds += birdCount;
     
     // Count original birds via subIds (to measure compression)
+    // Also track species and location stats
     if (entry.data) {
       for (const bird of entry.data) {
+        // Count for compression stats
         if (bird.subIds) {
           totalOriginalBirds += bird.subIds.length;
+        }
+        
+        // Track species stats
+        if (bird.speciesCode) {
+          const speciesData = speciesStats.get(bird.speciesCode) || {
+            count: 0,
+            comName: bird.comName || 'Unknown',
+            isNotable: bird.isNotable || false,
+            locations: new Set()
+          };
+          
+          speciesData.count += bird.subIds ? bird.subIds.length : 1;
+          
+          // If any observation of this species is notable, mark the species as notable
+          speciesData.isNotable = speciesData.isNotable || bird.isNotable;
+          
+          // Add location to this species' observed locations
+          if (bird.lat && bird.lng) {
+            const locationKey = `${parseFloat(bird.lat).toFixed(2)},${parseFloat(bird.lng).toFixed(2)}`;
+            speciesData.locations.add(locationKey);
+          }
+          
+          speciesStats.set(bird.speciesCode, speciesData);
+        }
+        
+        // Track location stats
+        if (bird.lat && bird.lng) {
+          // Round to 2 decimal places for location grouping
+          const locationKey = `${parseFloat(bird.lat).toFixed(2)},${parseFloat(bird.lng).toFixed(2)}`;
+          
+          const locationData = locationStats.get(locationKey) || {
+            count: 0,
+            species: new Set(),
+            notable: 0,
+            lat: parseFloat(bird.lat),
+            lng: parseFloat(bird.lng)
+          };
+          
+          locationData.count += bird.subIds ? bird.subIds.length : 1;
+          locationData.species.add(bird.speciesCode);
+          
+          if (bird.isNotable) {
+            locationData.notable += bird.subIds ? bird.subIds.length : 1;
+          }
+          
+          locationStats.set(locationKey, locationData);
         }
       }
     }
@@ -621,6 +673,36 @@ function getStats() {
     ? totalOriginalBirds / totalCompressedBirds 
     : 0;
 
+  // Process species data for return - convert Set to array and sort by count
+  const topSpecies = Array.from(speciesStats.entries())
+    .map(([code, data]) => ({
+      speciesCode: code,
+      comName: data.comName,
+      count: data.count,
+      isNotable: data.isNotable,
+      locationCount: data.locations.size
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20); // Limit to top 20 species
+
+  // Get total species count and notable count
+  const totalSpeciesCount = speciesStats.size;
+  const notableSpeciesCount = Array.from(speciesStats.values())
+    .filter(species => species.isNotable).length;
+
+  // Process location data for return - convert Set to array and sort by count
+  const topLocations = Array.from(locationStats.entries())
+    .map(([key, data]) => ({
+      locationKey: key,
+      lat: data.lat,
+      lng: data.lng,
+      count: data.count,
+      speciesCount: data.species.size,
+      notableCount: data.notable
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20); // Limit to top 20 locations
+
   return {
     totalEntries: tileCache.size,
     tileCache: {
@@ -659,6 +741,15 @@ function getStats() {
       sizeDistribution,
       birdsByBack,
       tileCoordinates: tileCoordinates.length > 0 ? tileCoordinates : null
+    },
+    speciesStats: {
+      totalSpecies: totalSpeciesCount,
+      notableSpecies: notableSpeciesCount,
+      topSpecies: topSpecies
+    },
+    locationStats: {
+      totalLocations: locationStats.size,
+      topLocations: topLocations
     },
     performanceStats: {
       hitRatio

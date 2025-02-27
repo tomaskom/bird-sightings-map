@@ -501,6 +501,11 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
         h1, h2 { 
           color: #2c3e50;
         }
+        h3 {
+          color: #34495e;
+          margin-top: 0;
+          margin-bottom: 15px;
+        }
         .dashboard {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -512,6 +517,19 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
           border-radius: 8px;
           padding: 15px;
           box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .list-container {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+        .map-container {
+          height: 400px;
+        }
+        #locationMap {
+          height: 350px;
+          width: 100%;
+          border-radius: 4px;
+          background-color: #f8f9fa;
         }
         .stat-card {
           background: white;
@@ -529,6 +547,29 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
           font-size: 1.8rem;
           font-weight: bold;
           color: #2c3e50;
+        }
+        .stat-banner {
+          display: flex;
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .banner-stat {
+          background: white;
+          border-radius: 8px;
+          padding: 15px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          flex: 1;
+          text-align: center;
+        }
+        .banner-stat-value {
+          font-size: 2rem;
+          font-weight: bold;
+          color: #2c3e50;
+        }
+        .banner-stat-label {
+          font-size: 0.9rem;
+          color: #7f8c8d;
+          margin-top: 5px;
         }
         .badge {
           display: inline-block;
@@ -570,6 +611,9 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
         }
         th {
           background-color: #f8f9fa;
+        }
+        .data-table {
+          font-size: 0.9rem;
         }
         
         .footer {
@@ -638,6 +682,78 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
           <canvas id="sizeChart"></canvas>
         </div>
       </div>
+
+      <h2>Top Species</h2>
+      <div class="stat-banner">
+        <div class="banner-stat">
+          <div class="banner-stat-value">${stats.speciesStats?.totalSpecies || 0}</div>
+          <div class="banner-stat-label">Total Species</div>
+        </div>
+        <div class="banner-stat">
+          <div class="banner-stat-value">${stats.speciesStats?.notableSpecies || 0}</div>
+          <div class="banner-stat-label">Notable Species</div>
+        </div>
+      </div>
+
+      <div class="dashboard">
+        <div class="chart-container">
+          <canvas id="speciesChart"></canvas>
+        </div>
+        
+        <div class="chart-container list-container">
+          <h3>Most Observed Species</h3>
+          <table class="data-table">
+            <tr>
+              <th>Species</th>
+              <th>Count</th>
+              <th>Locations</th>
+              <th>Notable</th>
+            </tr>
+            ${stats.speciesStats?.topSpecies?.slice(0, 10).map(species => `
+              <tr>
+                <td>${species.comName}</td>
+                <td>${species.count}</td>
+                <td>${species.locationCount}</td>
+                <td>${species.isNotable ? '★' : ''}</td>
+              </tr>
+            `).join('') || ''}
+          </table>
+        </div>
+      </div>
+
+      <h2>Top Locations</h2>
+      <div class="stat-banner">
+        <div class="banner-stat">
+          <div class="banner-stat-value">${stats.locationStats?.totalLocations || 0}</div>
+          <div class="banner-stat-label">Total Locations</div>
+        </div>
+      </div>
+
+      <div class="dashboard">
+        <div class="chart-container map-container">
+          <div id="locationMap"></div>
+        </div>
+        
+        <div class="chart-container list-container">
+          <h3>Hotspot Locations</h3>
+          <table class="data-table">
+            <tr>
+              <th>Location</th>
+              <th>Birds</th>
+              <th>Species</th>
+              <th>Notable</th>
+            </tr>
+            ${stats.locationStats?.topLocations?.slice(0, 10).map(location => `
+              <tr>
+                <td>${location.locationKey}</td>
+                <td>${location.count}</td>
+                <td>${location.speciesCount}</td>
+                <td>${location.notableCount > 0 ? location.notableCount : ''}</td>
+              </tr>
+            `).join('') || ''}
+          </table>
+        </div>
+      </div>
       
       <h2>Cache Configuration</h2>
       <table>
@@ -688,6 +804,9 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
       <div class="footer">
         Last updated: ${new Date().toLocaleString()}
       </div>
+      
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       
       <script>
         // Age distribution chart
@@ -777,6 +896,91 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
             }
           }
         });
+        
+        // Species chart (top 10)
+        const speciesData = ${JSON.stringify(stats.speciesStats?.topSpecies?.slice(0, 10) || [])};
+        new Chart(document.getElementById('speciesChart'), {
+          type: 'bar',
+          data: {
+            labels: speciesData.map(s => s.comName),
+            datasets: [{
+              label: 'Observations',
+              data: speciesData.map(s => s.count),
+              backgroundColor: speciesData.map(s => s.isNotable ? '#e74c3c' : '#3498db')
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: {
+              title: {
+                display: true,
+                text: 'Top 10 Observed Birds'
+              },
+              legend: {
+                display: false
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const species = speciesData[context.dataIndex];
+                    return [
+                      context.formattedValue + " observations",
+                      species.locationCount + " location" + (species.locationCount === 1 ? '' : 's'),
+                      species.isNotable ? 'Notable species' : ''
+                    ].filter(Boolean);
+                  }
+                }
+              }
+            }
+          }
+        });
+        
+        // Location map
+        const locationData = ${JSON.stringify(stats.locationStats?.topLocations || [])};
+        
+        if (locationData.length > 0) {
+          // Initialize map
+          const map = L.map('locationMap').setView([
+            locationData[0].lat || 0, 
+            locationData[0].lng || 0
+          ], 5);
+          
+          // Add OpenStreetMap tile layer
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          }).addTo(map);
+          
+          // Add markers for top locations
+          locationData.forEach(location => {
+            if (location.lat && location.lng) {
+              const marker = L.circleMarker([location.lat, location.lng], {
+                radius: Math.min(20, 5 + (location.count / 50)),
+                fillColor: location.notableCount > 0 ? '#e74c3c' : '#3498db',
+                color: '#fff',
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+              }).addTo(map);
+              
+              marker.bindPopup(
+                '<strong>Location:</strong> ' + location.locationKey + '<br>' +
+                '<strong>Birds:</strong> ' + location.count + '<br>' +
+                '<strong>Species:</strong> ' + location.speciesCount + '<br>' +
+                (location.notableCount > 0 ? '<strong>Notable birds:</strong> ' + location.notableCount + '<br>' : '')
+              );
+            }
+          });
+          
+          // Fit bounds to all markers
+          const latLngs = locationData
+            .filter(l => l.lat && l.lng)
+            .map(l => [l.lat, l.lng]);
+          
+          if (latLngs.length > 1) {
+            map.fitBounds(latLngs);
+          }
+        }
         
         // Button handlers
         document.getElementById('refresh-btn').addEventListener('click', function() {

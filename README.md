@@ -369,3 +369,4 @@ CACHE_CLEANUP_INTERVAL_MINUTES # Optional: Interval for automatic cache cleanup 
 - Photos provided by [BirdWeather](https://birdweather.com)
 - Leaflet mapping library and plugins
 - Chart.js for admin dashboard visualizations
+- 🤖 Co-Authored-By: Claude noreply@anthropic.com
