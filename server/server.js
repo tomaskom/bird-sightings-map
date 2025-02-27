@@ -46,6 +46,10 @@ const {
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Trust proxy for Railway deployment
+// This is needed because Railway uses a proxy, which sends X-Forwarded-For headers
+app.set('trust proxy', 1);
+
 // Verify environment on startup
 debug.info('Server initializing with config:', {
   apiKey: process.env.EBIRD_API_KEY ? 'Present' : 'Missing',
@@ -71,6 +75,8 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 const geocodeLimiter = rateLimit({
   windowMs: 1000,
   max: 2,
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   message: { error: 'Too many location searches, please wait a moment' }
 });
 
