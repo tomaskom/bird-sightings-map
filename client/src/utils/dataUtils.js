@@ -25,33 +25,188 @@ import _ from 'lodash';
 import { debug } from './debug';
 
 
+// In-memory cache for bird photos
+const photoCache = {
+  // Cache data - mapping of species keys to photo data
+  data: {},
+  
+  // Cache expiration times - mapping of species keys to expiration timestamps
+  expires: {},
+  
+  // Cache TTL in milliseconds (24 hours)
+  TTL: 24 * 60 * 60 * 1000,
+  
+  // Get a photo from cache if available and not expired
+  get(speciesKey) {
+    const now = Date.now();
+    if (this.data[speciesKey] && this.expires[speciesKey] > now) {
+      return this.data[speciesKey];
+    }
+    return null;
+  },
+  
+  // Store a photo in cache with expiration
+  set(speciesKey, photoData) {
+    this.data[speciesKey] = photoData;
+    this.expires[speciesKey] = Date.now() + this.TTL;
+  },
+  
+  // Store photos for multiple species
+  setMultiple(photosObj) {
+    Object.entries(photosObj).forEach(([key, data]) => {
+      this.set(key, data);
+    });
+  },
+  
+  // Check which species are missing from cache
+  getMissingSpecies(speciesKeys) {
+    const now = Date.now();
+    return speciesKeys.filter(key => 
+      !this.data[key] || this.expires[key] <= now
+    );
+  }
+};
+
+// Initialize photo cache from localStorage on load
+try {
+  const savedCache = localStorage.getItem('birdPhotoCache');
+  if (savedCache) {
+    const parsed = JSON.parse(savedCache);
+    photoCache.data = parsed.data || {};
+    photoCache.expires = parsed.expires || {};
+    
+    // Clean expired entries
+    const now = Date.now();
+    Object.keys(photoCache.expires).forEach(key => {
+      if (photoCache.expires[key] <= now) {
+        delete photoCache.data[key];
+        delete photoCache.expires[key];
+      }
+    });
+    
+    debug.debug('Loaded photo cache from localStorage:', Object.keys(photoCache.data).length);
+  }
+} catch (error) {
+  debug.error('Error loading photo cache from localStorage:', error);
+}
+
+// Save cache to localStorage periodically
+setInterval(() => {
+  try {
+    const cacheData = {
+      data: photoCache.data,
+      expires: photoCache.expires
+    };
+    localStorage.setItem('birdPhotoCache', JSON.stringify(cacheData));
+    debug.debug('Saved photo cache to localStorage:', Object.keys(photoCache.data).length);
+  } catch (error) {
+    debug.error('Error saving photo cache to localStorage:', error);
+  }
+}, 60000); // Save every minute
+
 /**
  * Fetches bird photos from the BirdWeather API for given species
+ * Uses a cache to avoid redundant API calls
  * @param {string[]} uniqueSpecies - Array of unique species identifiers
  * @returns {Promise<Object>} Object mapping species to their photo URLs
  */
 export const fetchBirdPhotos = async (uniqueSpecies) => {
-  try {
-    const photoResponse = await fetch('https://app.birdweather.com/api/v1/species/lookup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        species: uniqueSpecies,
-        fields: ['imageUrl', 'thumbnailUrl']
-      })
+  if (!uniqueSpecies || uniqueSpecies.length === 0) {
+    return {};
+  }
+  
+  // First check which species are missing from the cache
+  const missingSpecies = photoCache.getMissingSpecies(uniqueSpecies);
+  
+  // If all species are in cache, return from cache immediately
+  if (missingSpecies.length === 0) {
+    debug.debug('All species photos found in cache:', uniqueSpecies.length);
+    const result = {};
+    uniqueSpecies.forEach(species => {
+      result[species] = photoCache.get(species);
     });
-    
-    if (photoResponse.ok) {
-      const photoData = await photoResponse.json();
-      debug.debug('Retrieved photos for species:', Object.keys(photoData.species).length);
-      return photoData.species;
+    return result;
+  }
+  
+  // Create result combining cached and newly fetched photos
+  const result = {};
+  
+  // Add cached photos to result
+  const cachedSpecies = uniqueSpecies.filter(s => !missingSpecies.includes(s));
+  cachedSpecies.forEach(species => {
+    result[species] = photoCache.get(species);
+  });
+  
+  debug.debug('Using cached photos for species:', cachedSpecies.length);
+  
+  // Fetch missing photos
+  if (missingSpecies.length > 0) {
+    try {
+      debug.debug('Fetching photos for missing species:', missingSpecies.length);
+      const photoResponse = await fetch('https://app.birdweather.com/api/v1/species/lookup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          species: missingSpecies,
+          fields: ['imageUrl', 'thumbnailUrl']
+        })
+      });
+      
+      if (photoResponse.ok) {
+        const photoData = await photoResponse.json();
+        debug.debug('Retrieved photos for species:', Object.keys(photoData.species).length);
+        
+        // Update the cache with new photos
+        photoCache.setMultiple(photoData.species);
+        
+        // Add newly fetched photos to result
+        Object.entries(photoData.species).forEach(([key, data]) => {
+          result[key] = data;
+        });
+      }
+    } catch (error) {
+      debug.error('Error fetching species photos:', error);
     }
-    return {};
-  } catch (error) {
-    debug.error('Error fetching species photos:', error);
-    return {};
+  }
+  
+  return result;
+};
+
+/**
+ * Event bus for photo updates
+ */
+const photoUpdateEvents = {
+  listeners: new Map(),
+  
+  // Register a listener for a specific species
+  subscribe(speciesKey, callback) {
+    if (!this.listeners.has(speciesKey)) {
+      this.listeners.set(speciesKey, new Set());
+    }
+    this.listeners.get(speciesKey).add(callback);
+    return () => this.unsubscribe(speciesKey, callback);
+  },
+  
+  // Remove a listener
+  unsubscribe(speciesKey, callback) {
+    if (this.listeners.has(speciesKey)) {
+      this.listeners.get(speciesKey).delete(callback);
+    }
+  },
+  
+  // Notify listeners of a photo update
+  notify(speciesKey, photoData) {
+    if (this.listeners.has(speciesKey)) {
+      this.listeners.get(speciesKey).forEach(callback => {
+        try {
+          callback(photoData);
+        } catch (error) {
+          debug.error('Error in photo update listener:', error);
+        }
+      });
+    }
   }
 };
 
@@ -59,9 +214,15 @@ export const fetchBirdPhotos = async (uniqueSpecies) => {
  * Processes bird sightings data that has been already compressed by the server
  * Groups it by location for display on the map
  * @param {Object[]} sightings - Array of server-compressed bird sighting records
+ * @param {Object} options - Processing options
+ * @param {boolean} options.deferPhotos - Whether to defer photo loading (default: true)
  * @returns {Object[]} Array of location objects with grouped bird sightings
  */
-export const processBirdSightings = async (sightings) => {
+export const processBirdSightings = async (sightings, options = {}) => {
+  const startTime = Date.now();
+  const { deferPhotos = true } = options;
+  
+  // Filter valid sightings
   const validSightings = sightings.filter(sighting => sighting.obsValid === true);
   
   // Group birds by location (they're already compressed by species on the server)
@@ -75,29 +236,24 @@ export const processBirdSightings = async (sightings) => {
     locations: Object.keys(groupedByLocation).length
   });
 
-  // Extract unique species for photo fetching
+  // Extract unique species
   const uniqueSpecies = [...new Set(validSightings
     .map(sighting => `${sighting.sciName}_${sighting.comName}`))];
   
-  // Fetch photos for all species in one batch
-  const speciesPhotos = await fetchBirdPhotos(uniqueSpecies);
-
-  return Object.entries(groupedByLocation).map(([locationKey, locationBirds]) => {
+  // Prepare result locations with birds, initially without photos
+  const locationsWithBirds = Object.entries(groupedByLocation).map(([locationKey, locationBirds]) => {
     const [lat, lng] = locationKey.split(',').map(Number);
     
-    // Enhance birds with photo URLs - server already compressed by species
+    // Create birds array with updateable photo properties
     const birds = locationBirds.map(bird => {
-      const enhancedBird = { ...bird };
-      
-      // Add photo URLs if available
       const speciesKey = `${bird.sciName}_${bird.comName}`;
-      const photoData = speciesPhotos[speciesKey];
-      if (photoData) {
-        enhancedBird.thumbnailUrl = photoData.thumbnailUrl;
-        enhancedBird.fullPhotoUrl = photoData.imageUrl;
-      }
-
-      return enhancedBird;
+      // Create a new object without mutating the original
+      return { 
+        ...bird,
+        // Add method to update photos later
+        _photoUpdateId: Math.random().toString(36).substr(2, 9),
+        _speciesKey: speciesKey
+      };
     });
     
     return {
@@ -105,6 +261,94 @@ export const processBirdSightings = async (sightings) => {
       lng,
       birds
     };
+  });
+  
+  // For immediate photo loading (for the first load or if deferPhotos=false)
+  // Try to get photos from cache first
+  const initialPhotos = {};
+  uniqueSpecies.forEach(species => {
+    const cached = photoCache.get(species);
+    if (cached) {
+      initialPhotos[species] = cached;
+    }
+  });
+  
+  // Apply cached photos to birds
+  if (Object.keys(initialPhotos).length > 0) {
+    locationsWithBirds.forEach(location => {
+      location.birds.forEach(bird => {
+        if (initialPhotos[bird._speciesKey]) {
+          const photoData = initialPhotos[bird._speciesKey];
+          bird.thumbnailUrl = photoData.thumbnailUrl;
+          bird.fullPhotoUrl = photoData.imageUrl;
+        }
+      });
+    });
+    
+    debug.debug('Applied cached photos to birds:', Object.keys(initialPhotos).length);
+  }
+  
+  // Start loading missing photos in the background if we're deferring
+  const missingSpecies = photoCache.getMissingSpecies(uniqueSpecies);
+  
+  if (missingSpecies.length > 0) {
+    if (deferPhotos) {
+      // Load photos in the background after returning the initial data
+      setTimeout(async () => {
+        try {
+          debug.debug('Loading photos in background for species:', missingSpecies.length);
+          const photoData = await fetchBirdPhotos(missingSpecies);
+          
+          // Apply photos to birds by notifying listeners
+          Object.keys(photoData).forEach(speciesKey => {
+            if (photoData[speciesKey]) {
+              photoUpdateEvents.notify(speciesKey, photoData[speciesKey]);
+            }
+          });
+          
+          debug.debug('Background photo loading complete:', Object.keys(photoData).length);
+        } catch (error) {
+          debug.error('Error loading photos in background:', error);
+        }
+      }, 10);
+    } else {
+      // Load photos before returning if not deferring
+      debug.debug('Loading photos immediately for species:', missingSpecies.length);
+      const photoData = await fetchBirdPhotos(missingSpecies);
+      
+      // Apply photos to birds
+      locationsWithBirds.forEach(location => {
+        location.birds.forEach(bird => {
+          if (photoData[bird._speciesKey]) {
+            bird.thumbnailUrl = photoData[bird._speciesKey].thumbnailUrl;
+            bird.fullPhotoUrl = photoData[bird._speciesKey].imageUrl;
+          }
+        });
+      });
+    }
+  }
+  
+  debug.debug(`Processed bird sightings in ${Date.now() - startTime}ms`);
+  return locationsWithBirds;
+};
+
+/**
+ * Subscribes to photo updates for a bird marker
+ * @param {Object} bird - Bird object with _speciesKey
+ * @param {Function} onUpdate - Callback when photo is updated
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToPhotoUpdates = (bird, onUpdate) => {
+  if (!bird || !bird._speciesKey) return () => {};
+  
+  return photoUpdateEvents.subscribe(bird._speciesKey, (photoData) => {
+    // Check if photoData exists before trying to access properties
+    if (photoData) {
+      onUpdate({
+        thumbnailUrl: photoData.thumbnailUrl || null,
+        fullPhotoUrl: photoData.imageUrl || null
+      });
+    }
   });
 };
 

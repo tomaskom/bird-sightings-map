@@ -17,25 +17,23 @@
  * Project: bird-sightings-map
  * Description: In-memory cache manager for bird sighting data with tile-based caching
  * 
- * Dependencies: debug.js
+ * Dependencies: debug.js, serverConstants.js
  */
 
 const { debug } = require('./debug');
+const constants = require('./serverConstants');
 
-// Get cache TTL from environment variable or use default (4 hours)
-const CACHE_TTL = (parseInt(process.env.CACHE_TTL_MINUTES, 10) || 240) * 60 * 1000;
+// Convert cache TTL and cleanup interval from minutes to milliseconds
+const CACHE_TTL = constants.CACHE.TTL_MINUTES * 60 * 1000;
+const CLEANUP_INTERVAL = constants.CACHE.CLEANUP_INTERVAL_MINUTES * 60 * 1000;
 
-// Get cleanup interval from environment variable or use default (15 minutes)
-const CLEANUP_INTERVAL = (parseInt(process.env.CACHE_CLEANUP_INTERVAL_MINUTES, 10) || 15) * 60 * 1000;
-
-// Get tile size from environment variable or use default (2km)
-const TILE_SIZE_KM = parseFloat(process.env.TILE_SIZE_KM || 2);
+// Get tile settings from constants
+const TILE_SIZE_KM = constants.TILES.SIZE_KM;
+const VIEWPORT_BUFFER = constants.TILES.VIEWPORT_BUFFER;
+const MAX_LATITUDE = constants.GEO.MAX_LATITUDE;
 
 // In-memory cache store for tile-based caching
 const tileCache = new Map();
-
-// Latitude limits to avoid issues near poles
-const MAX_LATITUDE = 85; // Avoid extreme polar regions
 
 /**
  * Converts a coordinate to a tile ID based on configured tile size
@@ -133,10 +131,10 @@ function getTilesForViewport(viewport) {
   const maxLng = parseFloat(viewport.maxLng);
   const back = viewport.back;
   
-  // Add smaller buffer around viewport edges (10% of viewport size on each side)
-  // The buffer should be smaller to reduce the number of tiles
-  const latBuffer = (maxLat - minLat) * 0.1;
-  const lngBuffer = (maxLng - minLng) * 0.1;
+  // Add buffer around viewport edges (configured percentage of viewport size on each side)
+  // This helps ensure we capture all relevant tiles
+  const latBuffer = (maxLat - minLat) * VIEWPORT_BUFFER;
+  const lngBuffer = (maxLng - minLng) * VIEWPORT_BUFFER;
   
   const bufferedViewport = {
     minLat: Math.max(minLat - latBuffer, -MAX_LATITUDE),

@@ -41,7 +41,13 @@ import {
   getRegionForCoordinates
 } from '../utils/regionUtils';
 import { getMapParamsFromUrl, updateUrlParams } from '../utils/urlUtils';
-import { fetchBirdPhotos, processBirdSightings, buildViewportApiUrl, fetchLocationDetails, searchLocation } from '../utils/dataUtils';
+import { 
+  processBirdSightings, 
+  buildViewportApiUrl, 
+  fetchLocationDetails, 
+  searchLocation,
+  subscribeToPhotoUpdates 
+} from '../utils/dataUtils';
 import {
   filterSpeciesByName,
   fetchRegionSpecies,
@@ -76,7 +82,45 @@ initializeMapIcons();
  */
 const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect, mapRef }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [birds, setBirds] = useState(location.birds);
   const markerRef = useRef();
+  const photoUnsubscribers = useRef([]);
+  
+  // Set up photo update subscriptions for all birds at this location
+  useEffect(() => {
+    // Clean up any existing subscriptions
+    photoUnsubscribers.current.forEach(unsubscribe => unsubscribe());
+    photoUnsubscribers.current = [];
+    
+    // Skip if no birds or no _speciesKey (indicates older data format)
+    if (!location.birds || !location.birds.length || !location.birds[0]._speciesKey) {
+      return;
+    }
+    
+    // Subscribe to photo updates for each bird
+    const newUnsubscribers = location.birds.map((bird, index) => {
+      return subscribeToPhotoUpdates(bird, (photoData) => {
+        // Update the bird with new photo data
+        setBirds(currentBirds => {
+          const newBirds = [...currentBirds];
+          newBirds[index] = {
+            ...newBirds[index],
+            thumbnailUrl: photoData.thumbnailUrl,
+            fullPhotoUrl: photoData.fullPhotoUrl
+          };
+          return newBirds;
+        });
+      });
+    });
+    
+    photoUnsubscribers.current = newUnsubscribers;
+    
+    // Clean up subscriptions on unmount
+    return () => {
+      photoUnsubscribers.current.forEach(unsubscribe => unsubscribe());
+      photoUnsubscribers.current = [];
+    };
+  }, [location.birds]);
 
   const eventHandlers = useCallback({
     popupopen: () => {
@@ -119,7 +163,7 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect,
       >
         {isPopupOpen && (
           <BirdPopupContent 
-            birds={location.birds} 
+            birds={birds} 
             notableSpeciesCodes={notableSpeciesCodes}
             onBirdSelect={handleBirdSelect}
           />
@@ -421,6 +465,95 @@ const BirdMap = () => {
    */
 
   /**
+   * Calculates the viewport areas that need to be fetched by comparing with lastFetchViewport
+   * @param {Object} newViewport - New viewport bounds
+   * @param {Object} lastViewport - Previously fetched viewport
+   * @returns {Array} Array of viewport segments that need to be fetched, or null if complete refetch needed
+   */
+  const getViewportSegmentsToFetch = useCallback((newViewport, lastViewport) => {
+    // If no previous viewport or days back changed, need to fetch everything
+    if (!lastViewport || lastViewport.back !== newViewport.back) {
+      return null;
+    }
+    
+    // Check if there's any overlap between viewports
+    const hasOverlap = 
+      newViewport.minLat <= lastViewport.maxLat &&
+      newViewport.maxLat >= lastViewport.minLat &&
+      newViewport.minLng <= lastViewport.maxLng &&
+      newViewport.maxLng >= lastViewport.minLng;
+    
+    // If no overlap, need to fetch the entire new viewport
+    if (!hasOverlap) {
+      debug.debug("No overlap with previous viewport, fetching entire new viewport");
+      return null;
+    }
+    
+    // Calculate overlap region
+    const overlapViewport = {
+      minLat: Math.max(newViewport.minLat, lastViewport.minLat),
+      maxLat: Math.min(newViewport.maxLat, lastViewport.maxLat),
+      minLng: Math.max(newViewport.minLng, lastViewport.minLng),
+      maxLng: Math.min(newViewport.maxLng, lastViewport.maxLng),
+      back: newViewport.back
+    };
+    
+    // Calculate segments that need to be fetched (regions outside the overlap)
+    const segments = [];
+    
+    // North segment (if any)
+    if (newViewport.maxLat > lastViewport.maxLat) {
+      segments.push({
+        minLat: lastViewport.maxLat,
+        maxLat: newViewport.maxLat,
+        minLng: newViewport.minLng,
+        maxLng: newViewport.maxLng,
+        back: newViewport.back
+      });
+      debug.debug("Adding north segment to fetch");
+    }
+    
+    // South segment (if any)
+    if (newViewport.minLat < lastViewport.minLat) {
+      segments.push({
+        minLat: newViewport.minLat,
+        maxLat: lastViewport.minLat,
+        minLng: newViewport.minLng,
+        maxLng: newViewport.maxLng,
+        back: newViewport.back
+      });
+      debug.debug("Adding south segment to fetch");
+    }
+    
+    // East segment (excluding parts covered by north/south segments)
+    if (newViewport.maxLng > lastViewport.maxLng) {
+      segments.push({
+        minLat: Math.max(newViewport.minLat, lastViewport.minLat),
+        maxLat: Math.min(newViewport.maxLat, lastViewport.maxLat),
+        minLng: lastViewport.maxLng,
+        maxLng: newViewport.maxLng,
+        back: newViewport.back
+      });
+      debug.debug("Adding east segment to fetch");
+    }
+    
+    // West segment (excluding parts covered by north/south segments)
+    if (newViewport.minLng < lastViewport.minLng) {
+      segments.push({
+        minLat: Math.max(newViewport.minLat, lastViewport.minLat),
+        maxLat: Math.min(newViewport.maxLat, lastViewport.maxLat),
+        minLng: newViewport.minLng,
+        maxLng: lastViewport.minLng,
+        back: newViewport.back
+      });
+      debug.debug("Adding west segment to fetch");
+    }
+    
+    debug.info(`Generated ${segments.length} viewport segments to fetch`);
+    return segments.length > 0 ? segments : null;
+  }, []);
+
+  /**
    * Handles updates needed when the viewport bounds change
    * Updates the visible species based on what's actually in view 
    * @param {L.LatLngBounds} bounds - The current map bounds
@@ -528,112 +661,11 @@ const BirdMap = () => {
   }, [currentCountry, updateRegionSpecies, isMapAnimating]);
 
   /**
-   * Fetches bird sighting data based on current map viewport
-   * @async
-   */
-  const fetchBirdData = async () => {
-    if (!mapRef) return;
-    
-    // Get current map bounds
-    const bounds = mapRef.getBounds();
-    const ne = bounds.getNorthEast();
-    const sw = bounds.getSouthWest();
-    
-    // Create new viewport parameters
-    const currentViewport = {
-      minLat: sw.lat,
-      maxLat: ne.lat,
-      minLng: sw.lng,
-      maxLng: ne.lng,
-      back
-    };
-    
-    // Check if we already have data for this viewport (or if it's zoomed in)
-    if (isViewportContained(lastFetchViewport, currentViewport) && allBirdData) {
-      debug.debug('Viewport is contained within last fetch, reusing data');
-      
-      // Filter the existing data by species if needed
-      if (selectedSpecies !== lastFetchParams?.species) {
-        debug.debug('Filtering existing data for new species selection:', selectedSpecies);
-        
-        // Start a loading operation for filtering
-        startLoading();
-        
-        // Filter data
-        const filteredData = filterBirdDataBySpecies(allBirdData);
-        
-        // Process filtered data (the function handles endLoading internally)
-        startLoading(); // Add another loading operation for the processing stage
-        processAndDisplayFilteredData(filteredData)
-          .catch(error => {
-            debug.error('Error processing filtered data:', error);
-            // Loading state is cleared in the function
-          })
-          .finally(() => {
-            // End the loading operation for the filtering stage
-            endLoading();
-          });
-        
-        // Update last fetch params to avoid refiltering
-        setLastFetchParams({
-          ...lastFetchParams,
-          species: selectedSpecies
-        });
-      }
-      
-      return;
-    }
-    
-    startLoading();
-    
-    try {
-      // Create the viewport API URL
-      const apiUrl = buildViewportApiUrl(currentViewport);
-      
-      debug.info('Fetching bird data:', {
-        viewport: currentViewport
-      });
-      
-      const response = await fetch(apiUrl);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      // We get all bird data (both regular and notable) in one call
-      const data = await response.json();
-      
-      // Store complete data set for client-side filtering
-      setAllBirdData(data);
-      setLastFetchViewport(currentViewport);
-      
-      // Filter the data by current species selection
-      const filteredData = filterBirdDataBySpecies(data);
-      
-      // Process and display the data - note: this function handles endLoading internally
-      startLoading(); // Add another loading operation for the processing stage
-      await processAndDisplayFilteredData(filteredData);
-      
-      // Update last fetch parameters
-      setLastFetchParams({ 
-        back, 
-        species: selectedSpecies,
-        region: currentCountry 
-      });
-    } catch (error) {
-      debug.error('Error fetching bird data:', error);
-      alert('Error fetching bird sightings');
-    } finally {
-      endLoading(); // End the loading operation for the fetch itself
-    }
-  };
-  
-  /**
    * Process filtered data and update state with it
    * @param {Array} filteredData - Bird data filtered by species
    * @returns {Promise<void>} Promise that resolves when processing is complete
    */
-  const processAndDisplayFilteredData = async (filteredData) => {
+  const processAndDisplayFilteredData = useCallback(async (filteredData) => {
     const startTime = Date.now();
     try {
       // Process the filtered data
@@ -699,7 +731,201 @@ const BirdMap = () => {
       // Always end the loading operation, regardless of success or failure
       endLoading();
     }
-  };
+  }, [mapRef, endLoading, setBirdSightings, setVisibleSpeciesCodes, setNotableSpeciesCodes]);
+
+  /**
+   * Fetches bird sighting data for a specific viewport segment
+   * @async
+   * @param {Object} viewport - Viewport segment parameters
+   * @returns {Promise<Array>} Bird data for the segment
+   */
+  const fetchViewportSegment = useCallback(async (viewport) => {
+    // Create the viewport API URL
+    const apiUrl = buildViewportApiUrl(viewport);
+    
+    debug.info('Fetching segment data:', {
+      viewport
+    });
+    
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  }, []);
+
+  /**
+   * Merges existing bird data with new data from viewport segments
+   * Handles deduplication where needed
+   * @param {Array} existingData - Existing bird data
+   * @param {Array} newData - New bird data to merge
+   * @returns {Array} Combined bird data without duplicates
+   */
+  const mergeBirdData = useCallback((existingData, newData) => {
+    // If either array is empty, return the other
+    if (!existingData || existingData.length === 0) return newData;
+    if (!newData || newData.length === 0) return existingData;
+    
+    // Use a map for efficient deduplication
+    const uniqueBirds = new Map();
+    
+    // Add existing birds to the map
+    existingData.forEach(bird => {
+      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
+      uniqueBirds.set(key, bird);
+    });
+    
+    // Add new birds, overwriting existing if notable
+    newData.forEach(bird => {
+      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
+      
+      if (!uniqueBirds.has(key) || (bird.isNotable && !uniqueBirds.get(key).isNotable)) {
+        uniqueBirds.set(key, bird);
+      }
+    });
+    
+    // Convert map back to array
+    return Array.from(uniqueBirds.values());
+  }, []);
+
+  /**
+   * Fetches bird sighting data based on current map viewport
+   * @async
+   */
+  const fetchBirdData = useCallback(async () => {
+    if (!mapRef) return;
+    
+    // Get current map bounds
+    const bounds = mapRef.getBounds();
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    
+    // Create new viewport parameters
+    const currentViewport = {
+      minLat: sw.lat,
+      maxLat: ne.lat,
+      minLng: sw.lng,
+      maxLng: ne.lng,
+      back
+    };
+    
+    // Check if we already have data for this viewport (or if it's zoomed in)
+    if (isViewportContained(lastFetchViewport, currentViewport) && allBirdData) {
+      debug.debug('Viewport is contained within last fetch, reusing data');
+      
+      // Filter the existing data by species if needed
+      if (selectedSpecies !== lastFetchParams?.species) {
+        debug.debug('Filtering existing data for new species selection:', selectedSpecies);
+        
+        // Start a loading operation for filtering
+        startLoading();
+        
+        // Filter data
+        const filteredData = filterBirdDataBySpecies(allBirdData);
+        
+        // Process filtered data (the function handles endLoading internally)
+        startLoading(); // Add another loading operation for the processing stage
+        processAndDisplayFilteredData(filteredData)
+          .catch(error => {
+            debug.error('Error processing filtered data:', error);
+            // Loading state is cleared in the function
+          })
+          .finally(() => {
+            // End the loading operation for the filtering stage
+            endLoading();
+          });
+        
+        // Update last fetch params to avoid refiltering
+        setLastFetchParams({
+          ...lastFetchParams,
+          species: selectedSpecies
+        });
+      }
+      
+      return;
+    }
+    
+    // Get segments to fetch (if partial fetch is possible)
+    const segmentsToFetch = getViewportSegmentsToFetch(currentViewport, lastFetchViewport);
+    
+    startLoading();
+    
+    try {
+      let data;
+      
+      // Check if we can do a partial fetch
+      if (segmentsToFetch && allBirdData) {
+        debug.info(`Performing partial fetch for ${segmentsToFetch.length} viewport segments`);
+        
+        // Fetch each segment in parallel
+        const segmentDataPromises = segmentsToFetch.map(fetchViewportSegment);
+        const segmentResults = await Promise.all(segmentDataPromises);
+        
+        // Merge all segment data
+        let newSegmentData = [];
+        segmentResults.forEach(segmentData => {
+          newSegmentData = [...newSegmentData, ...segmentData];
+        });
+        
+        // Calculate what % of the data we saved by doing a partial fetch
+        const segmentCount = newSegmentData.length;
+        const fullCount = allBirdData.length;
+        const savingsPercent = Math.round((1 - (segmentCount / fullCount)) * 100);
+        
+        debug.info(`Partial fetch optimization: Received ${segmentCount} records vs. potential ${fullCount} (saved ~${savingsPercent}% of data transfer)`);
+        
+        // Merge with existing data
+        data = mergeBirdData(allBirdData, newSegmentData);
+        
+        debug.info(`Merged data now contains ${data.length} unique bird records`);
+      } else {
+        // Full fetch required
+        debug.info('Performing complete viewport fetch');
+        
+        // Create the viewport API URL
+        const apiUrl = buildViewportApiUrl(currentViewport);
+        
+        debug.info('Fetching bird data:', {
+          viewport: currentViewport
+        });
+        
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // We get all bird data (both regular and notable) in one call
+        data = await response.json();
+      }
+      
+      // Store complete data set for client-side filtering
+      setAllBirdData(data);
+      setLastFetchViewport(currentViewport);
+      
+      // Filter the data by current species selection
+      const filteredData = filterBirdDataBySpecies(data);
+      
+      // Process and display the data - note: this function handles endLoading internally
+      startLoading(); // Add another loading operation for the processing stage
+      await processAndDisplayFilteredData(filteredData);
+      
+      // Update last fetch parameters
+      setLastFetchParams({ 
+        back, 
+        species: selectedSpecies,
+        region: currentCountry 
+      });
+    } catch (error) {
+      debug.error('Error fetching bird data:', error);
+      alert('Error fetching bird sightings');
+    } finally {
+      endLoading(); // End the loading operation for the fetch itself
+    }
+  }, [mapRef, back, selectedSpecies, lastFetchViewport, lastFetchParams, allBirdData, startLoading, endLoading, isViewportContained, filterBirdDataBySpecies, processAndDisplayFilteredData, currentCountry, getViewportSegmentsToFetch, fetchViewportSegment, mergeBirdData]);
+  
 
   useEffect(() => {
     debug.debug('Fetch effect running with:', {
@@ -714,7 +940,7 @@ const BirdMap = () => {
       debug.debug('Triggering bird data fetch');
       fetchBirdData();
     }
-  }, [back, selectedSpecies, mapCenter, zoom, mapRef]);
+  }, [back, selectedSpecies, mapCenter, zoom, mapRef, loading, fetchBirdData]);
   
   // Effect to handle species filtering when we have viewport data
   useEffect(() => {

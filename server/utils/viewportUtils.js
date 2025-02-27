@@ -17,10 +17,11 @@
  * Project: bird-sightings-map
  * Description: Utilities for processing map viewports and calculating parameters
  * 
- * Dependencies: debug.js
+ * Dependencies: debug.js, serverConstants.js
  */
 
 const { debug } = require('./debug');
+const constants = require('./serverConstants');
 
 /**
  * Calculates the center point of a viewport
@@ -44,8 +45,8 @@ function calculateViewportCenter(viewport) {
 function calculateViewportRadius(viewport) {
   const center = calculateViewportCenter(viewport);
   
-  // Earth's radius in kilometers
-  const R = 6371;
+  // Earth's radius in kilometers from constants
+  const R = constants.GEO.EARTH_RADIUS_KM;
   
   // Calculate distances to all four corners
   const distances = [
@@ -114,7 +115,7 @@ function isValidViewport(viewport) {
   }
   
   // Check if latitude is within valid range (-90 to 90)
-  if (minLat < -90 || maxLat > 90) {
+  if (minLat < -90 || maxLat > 90 || maxLat > constants.GEO.MAX_LATITUDE || minLat < -constants.GEO.MAX_LATITUDE) {
     debug.debug('Invalid viewport: latitude out of range');
     return false;
   }

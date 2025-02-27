@@ -17,12 +17,13 @@
  * Project: bird-sightings-map
  * Description: Service for fetching and caching bird sighting data
  * 
- * Dependencies: debug.js, viewportUtils.js, cacheManager.js, node-fetch
+ * Dependencies: debug.js, viewportUtils.js, cacheManager.js, serverConstants.js, node-fetch
  */
 
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { debug } = require('../utils/debug');
 const { isValidViewport } = require('../utils/viewportUtils');
+const constants = require('../utils/serverConstants');
 const { 
   getTilesForViewport,
   getTileCenter,
@@ -31,12 +32,12 @@ const {
   getMissingTiles
 } = require('../utils/cacheManager');
 
-// Maximum number of parallel API requests to make
-const MAX_PARALLEL_REQUESTS = 8;
+// API request settings from constants
+const MAX_PARALLEL_REQUESTS = constants.API.MAX_PARALLEL_REQUESTS;
+const MAX_INITIAL_BATCHES = constants.API.MAX_INITIAL_BATCHES;
 
-// Get setting for radius buffer from environment or use default (1.1)
-// This is a multiplier for the tile radius to ensure we get all data at tile boundaries
-const RADIUS_BUFFER = parseFloat(process.env.TILE_RADIUS_BUFFER || 1.1);
+// Tile settings from constants
+const RADIUS_BUFFER = constants.TILES.RADIUS_BUFFER;
 
 
 /**
@@ -109,9 +110,8 @@ async function getBirdDataFromTiles(viewport) {
     
     // If we have many batches, limit to the most essential ones
     // for the initial view (we'll fetch the rest later if needed)
-    const maxInitialBatches = 3; // Only fetch the first 3 batches immediately
-    const initialBatches = batches.length > maxInitialBatches ? 
-      batches.slice(0, maxInitialBatches) : batches;
+    const initialBatches = batches.length > MAX_INITIAL_BATCHES ? 
+      batches.slice(0, MAX_INITIAL_BATCHES) : batches;
     
     // Fetch initial batches
     for (let i = 0; i < initialBatches.length; i++) {
@@ -123,12 +123,12 @@ async function getBirdDataFromTiles(viewport) {
     }
     
     // If there are remaining batches, fetch them in the background
-    if (batches.length > maxInitialBatches) {
-      debug.info(`Fetching ${batches.length - maxInitialBatches} remaining batches in background`);
+    if (batches.length > MAX_INITIAL_BATCHES) {
+      debug.info(`Fetching ${batches.length - MAX_INITIAL_BATCHES} remaining batches in background`);
       
       // We don't await this promise - it runs in the background while we return data
       (async () => {
-        for (let i = maxInitialBatches; i < batches.length; i++) {
+        for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
           const batch = batches[i];
           debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
           
@@ -191,7 +191,7 @@ async function fetchTileData(tileId) {
     // Using a fixed radius per tile based on the tile size
     // We add a buffer to ensure we get all data at the tile boundaries
     // This creates some overlap between adjacent tiles, but we handle deduplication later
-    const tileSizeKm = parseFloat(process.env.TILE_SIZE_KM || 2);
+    const tileSizeKm = constants.TILES.SIZE_KM;
     
     // Diagonal of a square tile is sqrt(2) * side length
     // We use this as the base radius to ensure we cover the whole tile
