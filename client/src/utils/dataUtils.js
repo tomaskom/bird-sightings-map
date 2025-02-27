@@ -56,12 +56,15 @@ export const fetchBirdPhotos = async (uniqueSpecies) => {
 };
 
 /**
- * Processes raw bird sightings data and groups it by location
- * @param {Object[]} sightings - Array of raw bird sighting records
+ * Processes bird sightings data that has been already compressed by the server
+ * Groups it by location for display on the map
+ * @param {Object[]} sightings - Array of server-compressed bird sighting records
  * @returns {Object[]} Array of location objects with grouped bird sightings
  */
 export const processBirdSightings = async (sightings) => {
   const validSightings = sightings.filter(sighting => sighting.obsValid === true);
+  
+  // Group birds by location (they're already compressed by species on the server)
   const groupedByLocation = _.groupBy(validSightings, sighting => 
     `${sighting.lat},${sighting.lng}`
   );
@@ -79,25 +82,22 @@ export const processBirdSightings = async (sightings) => {
   // Fetch photos for all species in one batch
   const speciesPhotos = await fetchBirdPhotos(uniqueSpecies);
 
-  return Object.entries(groupedByLocation).map(([locationKey, sightings]) => {
+  return Object.entries(groupedByLocation).map(([locationKey, locationBirds]) => {
     const [lat, lng] = locationKey.split(',').map(Number);
-    const birdsBySpecies = _.groupBy(sightings, 'comName');
     
-    const birds = Object.entries(birdsBySpecies).map(([comName, speciesSightings]) => {
-      const baseData = {
-        ...speciesSightings[0],
-        subIds: speciesSightings.map(s => s.subId)
-      };
-
+    // Enhance birds with photo URLs - server already compressed by species
+    const birds = locationBirds.map(bird => {
+      const enhancedBird = { ...bird };
+      
       // Add photo URLs if available
-      const speciesKey = `${baseData.sciName}_${baseData.comName}`;
+      const speciesKey = `${bird.sciName}_${bird.comName}`;
       const photoData = speciesPhotos[speciesKey];
       if (photoData) {
-        baseData.thumbnailUrl = photoData.thumbnailUrl;
-        baseData.fullPhotoUrl = photoData.imageUrl;
+        enhancedBird.thumbnailUrl = photoData.thumbnailUrl;
+        enhancedBird.fullPhotoUrl = photoData.imageUrl;
       }
 
-      return baseData;
+      return enhancedBird;
     });
     
     return {

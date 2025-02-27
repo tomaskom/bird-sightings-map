@@ -243,32 +243,53 @@ async function fetchTileData(tileId) {
 
 
 /**
- * Combines and deduplicates bird lists, preserving notable status
- * @param {Array} recentBirds - Recent bird sightings
- * @param {Array} notableBirds - Notable bird sightings
- * @returns {Array} Combined list with duplicates removed
+ * Combines and deduplicates bird lists by species and location
+ * Leverages the fact that records are sorted by date (most recent first)
+ * @param {Array} recentBirds - Recent bird sightings (sorted by date)
+ * @param {Array} notableBirds - Notable bird sightings (sorted by date)
+ * @returns {Array} Combined, deduplicated and compressed list
  */
 function combineAndDeduplicate(recentBirds, notableBirds) {
-  // Create a map of existing records by unique ID
+  // Create a map to group birds by species+location
   const birdMap = new Map();
   
-  // Add all recent birds to the map
-  recentBirds.forEach(bird => {
-    const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-    birdMap.set(key, bird);
-  });
+  // Process all birds - notable birds first to ensure notable status is preserved
+  // and records are already sorted by date (most recent first)
+  const allBirds = [...notableBirds, ...recentBirds];
   
-  // Add or update notable birds
-  notableBirds.forEach(bird => {
-    const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-    if (birdMap.has(key)) {
-      // If record exists, ensure it's marked as notable
-      birdMap.get(key).isNotable = true;
+  for (const bird of allBirds) {
+    // Create a key based on species and location only (not date)
+    const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}`;
+    
+    if (!birdMap.has(key)) {
+      // First sighting of this species at this location
+      // Since records are sorted by date (most recent first),
+      // this will always be the most recent observation for this group
+      const compressedBird = { ...bird };
+      compressedBird.subIds = bird.subId ? [bird.subId] : [];
+      // Remove the single subId property
+      delete compressedBird.subId;
+      birdMap.set(key, compressedBird);
     } else {
-      birdMap.set(key, bird);
+      // We already have this species at this location
+      const existingBird = birdMap.get(key);
+      
+      // Update notable status (keep as notable if either is notable)
+      existingBird.isNotable = existingBird.isNotable || bird.isNotable;
+      
+      // Add subId to the list if it exists and isn't already included
+      if (bird.subId && !existingBird.subIds.includes(bird.subId)) {
+        existingBird.subIds.push(bird.subId);
+      }
+      
+      // No need to compare dates since we know the first record we processed
+      // for each key is the most recent one (due to sorted input)
     }
-  });
+  }
   
+  debug.info(`Compressed bird data from ${allBirds.length} records to ${birdMap.size} unique species-location pairs`);
+  
+  // Convert map back to array
   return Array.from(birdMap.values());
 }
 

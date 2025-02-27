@@ -188,51 +188,146 @@ function getTilesForViewport(viewport) {
  * @param {Array} data - Bird sighting data to cache
  */
 function setTileCache(tileId, data) {
+  const [tileY, tileX, back] = tileId.split(':');
+  const backNum = parseInt(back, 10);
+  
+  // First ensure data is sorted by date (most recent first)
+  // This should already be the case, but we'll ensure it
+  const sortedData = [...data].sort((a, b) => 
+    new Date(b.obsDt) - new Date(a.obsDt)
+  );
+  
   const cacheEntry = {
-    data,
+    data: sortedData,
     timestamp: Date.now(),
-    expires: Date.now() + CACHE_TTL
+    expires: Date.now() + CACHE_TTL,
+    back: backNum,  // Store the back value explicitly
+    // Pre-calculate cutoff dates for common back values
+    cutoffDates: {}
   };
   
+  // Calculate common cutoff dates once (to speed up filtering)
+  [1, 3, 7, 14, 30].forEach(days => {
+    if (days <= backNum) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      cacheEntry.cutoffDates[days] = cutoff;
+    }
+  });
+  
   tileCache.set(tileId, cacheEntry);
-  debug.cache(`Tile cache set: ${tileId}, entries: ${data.length}, expires in ${CACHE_TTL/1000/60} minutes`);
+  debug.cache(`Tile cache set: ${tileId}, entries: ${sortedData.length}, expires in ${CACHE_TTL/1000/60} minutes`);
 }
 
 /**
  * Retrieves data from tile cache if available and not expired
+ * Handles back parameter filtering using the most appropriate cache entry
  * @param {string} tileId - Tile ID
  * @returns {Array|null} Cached data or null if not found/expired
  */
 function getTileCache(tileId) {
-  if (!tileCache.has(tileId)) {
-    debug.cache(`Tile cache miss: ${tileId}`);
-    return null;
+  // Parse the tile ID to get components
+  const [tileY, tileX, requestedBack] = tileId.split(':');
+  const requestedBackNum = parseInt(requestedBack, 10);
+  
+  // First check for exact match
+  if (tileCache.has(tileId)) {
+    const cacheEntry = tileCache.get(tileId);
+    
+    // Check if expired
+    if (Date.now() > cacheEntry.expires) {
+      debug.cache(`Tile cache expired: ${tileId}`);
+      tileCache.delete(tileId);
+      return null;
+    }
+    
+    debug.cache(`Tile cache hit: ${tileId}, age: ${(Date.now() - cacheEntry.timestamp)/1000} seconds, entries: ${cacheEntry.data.length}`);
+    return cacheEntry.data;
   }
   
-  const cacheEntry = tileCache.get(tileId);
+  // No exact match, check for the same tile coordinates with a larger "back" value
+  debug.cache(`Tile cache miss for exact match: ${tileId}, looking for superset...`);
   
-  // Check if expired
-  if (Date.now() > cacheEntry.expires) {
-    debug.cache(`Tile cache expired: ${tileId}`);
-    tileCache.delete(tileId);
-    return null;
+  // Look for tiles with the same coordinates but larger back values
+  let bestMatchTileId = null;
+  let bestMatchBackValue = null;
+  
+  for (const [cachedTileId, cacheEntry] of tileCache.entries()) {
+    const [cachedY, cachedX, cachedBack] = cachedTileId.split(':');
+    const cachedBackNum = cacheEntry.back || parseInt(cachedBack, 10);
+    
+    // Check if this is the same tile with a larger back value
+    if (cachedY === tileY && cachedX === tileX && 
+        cachedBackNum > requestedBackNum && 
+        (!bestMatchBackValue || cachedBackNum < bestMatchBackValue) && 
+        Date.now() <= cacheEntry.expires) {
+      // This is a candidate - either the first one we found or smaller than the previous one
+      bestMatchTileId = cachedTileId;
+      bestMatchBackValue = cachedBackNum;
+    }
   }
   
-  debug.cache(`Tile cache hit: ${tileId}, age: ${(Date.now() - cacheEntry.timestamp)/1000} seconds, entries: ${cacheEntry.data.length}`);
-  return cacheEntry.data;
+  // If we found a superset tile, filter its data by date
+  if (bestMatchTileId) {
+    debug.cache(`Found superset tile ${bestMatchTileId} for requested tile ${tileId}`);
+    const supersetEntry = tileCache.get(bestMatchTileId);
+    
+    // Calculate cutoff date based on requested back value
+    let cutoffDate;
+    
+    // Use pre-calculated cutoff dates if available
+    if (supersetEntry.cutoffDates && supersetEntry.cutoffDates[requestedBackNum]) {
+      cutoffDate = supersetEntry.cutoffDates[requestedBackNum];
+      debug.cache(`Using pre-calculated cutoff date for back=${requestedBackNum}`);
+    } else {
+      cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - requestedBackNum);
+      debug.cache(`Calculated cutoff date for back=${requestedBackNum}`);
+    }
+    
+    // Filter the data by observation date
+    const filteredData = supersetEntry.data.filter(bird => {
+      const obsDt = new Date(bird.obsDt);
+      return obsDt >= cutoffDate;
+    });
+    
+    debug.cache(`Filtered superset data from ${supersetEntry.data.length} to ${filteredData.length} records`);
+    
+    return filteredData;
+  }
+  
+  // No suitable cache entry found
+  debug.cache(`No suitable superset found for tile ${tileId}`);
+  return null;
 }
 
 /**
  * Gets missing tile IDs from the provided list (tiles that aren't in cache)
+ * Takes into account our new caching strategy with back parameter
  * @param {string[]} tileIds - List of tile IDs to check
  * @returns {string[]} List of missing tile IDs
  */
 function getMissingTiles(tileIds) {
   const missingTiles = [];
+  const tilesToFetch = new Map(); // Map to track which tiles we need to fetch
   
   for (const tileId of tileIds) {
+    // Check if we can get data for this tile (either exact or filtered from superset)
     if (!getTileCache(tileId)) {
-      missingTiles.push(tileId);
+      const [tileY, tileX, back] = tileId.split(':');
+      const backNum = parseInt(back, 10);
+      
+      // Check if we already plan to fetch a larger back value for this tile
+      const tileCoord = `${tileY}:${tileX}`;
+      
+      if (tilesToFetch.has(tileCoord) && tilesToFetch.get(tileCoord) >= backNum) {
+        // We already plan to fetch this tile with a larger back value
+        debug.cache(`Tile ${tileId} will be covered by planned fetch with larger back value`);
+      } else {
+        // Add or update this tile in our fetch plan
+        tilesToFetch.set(tileCoord, backNum);
+        missingTiles.push(tileId);
+      }
     }
   }
   
@@ -404,6 +499,9 @@ function getStats() {
   let totalBirdRecords = 0;
   let maxBirdsInTile = 0;
   let emptyTiles = 0;
+  let totalOriginalBirds = 0; // For compression stats
+  let totalCompressedBirds = 0; // For compression stats
+  
   const ageDistribution = {
     lessThan1Hour: 0,
     lessThan3Hours: 0,
@@ -455,6 +553,16 @@ function getStats() {
     // Count birds in tile
     const birdCount = entry.data ? entry.data.length : 0;
     totalBirdRecords += birdCount;
+    totalCompressedBirds += birdCount;
+    
+    // Count original birds via subIds (to measure compression)
+    if (entry.data) {
+      for (const bird of entry.data) {
+        if (bird.subIds) {
+          totalOriginalBirds += bird.subIds.length;
+        }
+      }
+    }
     
     if (birdCount > maxBirdsInTile) {
       maxBirdsInTile = birdCount;
@@ -503,6 +611,16 @@ function getStats() {
     }
   };
   
+  // Calculate compression stats
+  const compressionRatio = totalOriginalBirds > 0 
+    ? (1 - (totalCompressedBirds / totalOriginalBirds)) * 100 
+    : 0;
+    
+  // Calculate average subIds per bird
+  const avgSubIdsPerBird = totalCompressedBirds > 0 
+    ? totalOriginalBirds / totalCompressedBirds 
+    : 0;
+
   return {
     totalEntries: tileCache.size,
     tileCache: {
@@ -519,6 +637,13 @@ function getStats() {
       averageBirdsPerTile: avgBirdsPerTile,
       maxBirdsInTile,
       birdRecordDensity: totalBirdRecords / (tileCache.size || 1)
+    },
+    compressionStats: {
+      totalOriginalBirds,
+      totalCompressedBirds,
+      compressionRatio: compressionRatio.toFixed(2) + '%',
+      avgSubIdsPerBird: avgSubIdsPerBird.toFixed(2),
+      totalMemorySavings: compressionRatio.toFixed(2) + '%'
     },
     memoryStats: {
       totalSizeBytes: tileTotalSize,
