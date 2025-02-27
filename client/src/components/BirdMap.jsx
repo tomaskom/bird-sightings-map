@@ -655,9 +655,11 @@ const BirdMap = () => {
         }
       });
       
-      // Extract notable species codes
+      // Extract notable species codes - only for display in the species filter
+      // Do NOT use this for determining which birds to mark as notable in the UI
       const currentNotableSpecies = new Set();
       filteredData.forEach(bird => {
+        // Add to notable species set ONLY if the bird is actually from the notable API endpoint
         if (bird.isNotable && bird.speciesCode) {
           currentNotableSpecies.add(bird.speciesCode);
         }
@@ -873,9 +875,9 @@ const BirdMap = () => {
                 icon={location.birds.length > 1 
                   ? createMultiBirdIcon(
                       location.birds.length, 
-                      location.birds.some(bird => notableSpeciesCodes.has(bird.speciesCode))
+                      location.birds.some(bird => bird.isNotable)
                     ) 
-                  : (location.birds.length === 1 && notableSpeciesCodes.has(location.birds[0].speciesCode))
+                  : (location.birds.length === 1 && location.birds[0].isNotable)
                     ? createNotableBirdIcon()
                     : DefaultIcon}
                 notableSpeciesCodes={notableSpeciesCodes}
