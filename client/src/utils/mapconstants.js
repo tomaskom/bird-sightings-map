@@ -78,7 +78,7 @@ export const REGION_BUFFER_DISTANCE = 25;
 * @property {number} MAX_VIEWPORT_KM - Maximum viewport dimension in kilometers
 */
 export const MAP_ZOOM_CONSTRAINTS = {
-  MIN_ZOOM: 9, // Prevents zooming out too far (limit ~50km viewport)
+  MIN_ZOOM: 11, // Prevents zooming out too far (limit ~50km viewport)
   MAX_ZOOM: 18,
   MAX_VIEWPORT_KM: 50
 };
