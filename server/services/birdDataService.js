@@ -36,6 +36,11 @@ const {
 const MAX_PARALLEL_REQUESTS = constants.API.MAX_PARALLEL_REQUESTS;
 const MAX_INITIAL_BATCHES = constants.API.MAX_INITIAL_BATCHES;
 
+// Rate limiting protection
+let consecutiveSlowResponses = 0;
+let lastRequestTime = 0;
+let MIN_REQUEST_GAP_MS = 100; // Minimum gap between requests
+
 // Tile settings from constants
 const RADIUS_BUFFER = constants.TILES.RADIUS_BUFFER;
 
@@ -378,25 +383,126 @@ async function fetchBirdData(params) {
     lookback: back
   });
 
-  const response = await fetch(url, {
-    headers: {
-      'x-ebirdapitoken': process.env.EBIRD_API_KEY
+  const requestStartTime = Date.now();
+  let response;
+  
+  // Enforce minimum gap between API requests to avoid rate limiting
+  const currentTime = Date.now();
+  const timeSinceLastRequest = currentTime - lastRequestTime;
+  
+  if (timeSinceLastRequest < MIN_REQUEST_GAP_MS) {
+    const waitTime = MIN_REQUEST_GAP_MS - timeSinceLastRequest;
+    debug.info(`Waiting ${waitTime}ms before API request to prevent rate limiting`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastRequestTime = Date.now();
+  
+  try {
+    response = await fetch(url, {
+      headers: {
+        'x-ebirdapitoken': process.env.EBIRD_API_KEY
+      }
+    });
+    
+    const requestDuration = Date.now() - requestStartTime;
+    
+    // Log detailed API response information
+    debug.info('eBird API response details:', {
+      url: url,
+      status: response.status,
+      statusText: response.statusText,
+      duration: `${requestDuration}ms`,
+      headers: {
+        'x-rate-limit-remaining': response.headers.get('x-rate-limit-remaining'),
+        'x-rate-limit-reset': response.headers.get('x-rate-limit-reset'),
+        'x-rate-limit': response.headers.get('x-rate-limit'),
+        'retry-after': response.headers.get('retry-after')
+      }
+    });
+    
+    // Check for rate limiting indicators
+    if (requestDuration > 2000) {
+      consecutiveSlowResponses++;
+      debug.warn(`eBird API request took ${requestDuration}ms - may indicate throttling (${consecutiveSlowResponses} consecutive slow responses)`);
+      
+      // If we're getting multiple slow responses, start adding delays
+      if (consecutiveSlowResponses >= 3) {
+        const backoffDelay = Math.min(500 * Math.pow(1.5, consecutiveSlowResponses - 3), 10000);
+        debug.warn(`Applying rate limit backoff: ${backoffDelay}ms delay for future requests`);
+        MIN_REQUEST_GAP_MS = backoffDelay;
+      }
+    } else {
+      // Reset counter if we get a fast response
+      if (consecutiveSlowResponses > 0) {
+        consecutiveSlowResponses = Math.max(0, consecutiveSlowResponses - 1);
+      }
     }
-  });
-
-  debug.info('eBird API response status:', response.status);
+    
+    // Check rate limit headers if available
+    const rateLimit = response.headers.get('x-rate-limit');
+    const rateLimitRemaining = response.headers.get('x-rate-limit-remaining');
+    
+    if (rateLimit && rateLimitRemaining) {
+      const remainingPercent = (parseInt(rateLimitRemaining) / parseInt(rateLimit)) * 100;
+      if (remainingPercent < 20) {
+        debug.warn(`Rate limit approaching: ${rateLimitRemaining}/${rateLimit} (${remainingPercent.toFixed(1)}% remaining)`);
+        MIN_REQUEST_GAP_MS = Math.max(MIN_REQUEST_GAP_MS, 500);
+      }
+    }
+  } catch (error) {
+    debug.error('eBird API network error:', error.message);
+    throw new Error(`eBird API request failed with network error: ${error.message}`);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
-    debug.error('eBird API error:', errorText);
-    throw new Error(`eBird API request failed with status ${response.status}`);
+    debug.error('eBird API error response:', {
+      status: response.status,
+      text: errorText,
+      headers: {
+        'x-rate-limit-remaining': response.headers.get('x-rate-limit-remaining'),
+        'x-rate-limit-reset': response.headers.get('x-rate-limit-reset'),
+        'retry-after': response.headers.get('retry-after')
+      }
+    });
+    
+    if (response.status === 429) {
+      debug.error('RATE LIMITING DETECTED: eBird API returned 429 Too Many Requests');
+    }
+    
+    throw new Error(`eBird API request failed with status ${response.status}: ${errorText}`);
   }
 
   const responseText = await response.text();
   
   try {
     const data = JSON.parse(responseText);
-    debug.info('Successfully parsed bird records:', data.length);
+    
+    // More detailed success logging
+    debug.info('eBird API success:', {
+      count: data.length,
+      firstFew: data.length > 0 ? data.slice(0, 3).map(b => `${b.comName || 'Unknown'} at ${b.lat},${b.lng}`) : [],
+      hasMore: data.length > 3
+    });
+    
+    // Log the actual coordinates range found in the data
+    if (data.length > 0) {
+      const lats = data.map(b => parseFloat(b.lat));
+      const lngs = data.map(b => parseFloat(b.lng));
+      debug.info('Data coordinates range:', {
+        lat: {
+          min: Math.min(...lats).toFixed(4),
+          max: Math.max(...lats).toFixed(4)
+        },
+        lng: {
+          min: Math.min(...lngs).toFixed(4),
+          max: Math.max(...lngs).toFixed(4)
+        },
+        requestedCenter: { lat: lat.toFixed(4), lng: lng.toFixed(4) },
+        requestedRadius: dist
+      });
+    }
     return data;
   } catch (error) {
     debug.error('Failed to parse eBird response:', error);
