@@ -203,6 +203,7 @@ function setTileCache(tileId, data) {
     expires: Date.now() + CACHE_TTL,
     back: backNum,  // Store the back value explicitly
     isDeduplicated: false, // Flag to track whether this tile has been deduplicated
+    viewportDeduplicationSaved: 0, // Track viewport deduplication memory savings
     // Pre-calculate cutoff dates for common back values
     cutoffDates: {}
   };
@@ -784,6 +785,17 @@ function getStats() {
       avgSubIdsPerBird: avgSubIdsPerBird.toFixed(2),
       totalMemorySavings: compressionRatio.toFixed(2) + '%'
     },
+    viewportDeduplicationStats: {
+      // Calculate total duplication savings from viewport deduplication
+      totalRecordsSaved: Array.from(tileCache.values())
+        .reduce((sum, entry) => sum + (entry.viewportDeduplicationSaved || 0), 0),
+      tilesWithSavedDuplicates: Array.from(tileCache.values())
+        .filter(entry => entry.viewportDeduplicationSaved > 0).length,
+      avgSavedPerTile: Array.from(tileCache.values())
+        .filter(entry => entry.viewportDeduplicationSaved > 0)
+        .reduce((sum, entry) => sum + entry.viewportDeduplicationSaved, 0) / 
+        Math.max(1, Array.from(tileCache.values()).filter(entry => entry.viewportDeduplicationSaved > 0).length)
+    },
     memoryStats: {
       totalSizeBytes: tileTotalSize,
       averageSizePerTile: avgSizePerTile,
@@ -847,6 +859,8 @@ function resetSupersetSearch() {
   }
 }
 
+// tileCache is already defined above, so no need to redeclare it
+
 module.exports = {
   // Tile-based caching
   getTileId,
@@ -855,6 +869,9 @@ module.exports = {
   setTileCache,
   getTileCache,
   getMissingTiles,
+  
+  // Cache internals (used for cross-tile deduplication)
+  tileCache,
   
   // Cache management
   resetSupersetSearch,
