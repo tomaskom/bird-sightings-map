@@ -33,6 +33,7 @@ const VIEWPORT_BUFFER = constants.TILES.VIEWPORT_BUFFER;
 const MAX_LATITUDE = constants.GEO.MAX_LATITUDE;
 
 // In-memory cache store for tile-based caching
+// Primary map: tileY:tileX -> Map of back values to entries
 const tileCache = new Map();
 
 /**
@@ -188,6 +189,7 @@ function getTilesForViewport(viewport) {
 function setTileCache(tileId, data) {
   const [tileY, tileX, back] = tileId.split(':');
   const backNum = parseInt(back, 10);
+  const tileCoord = `${tileY}:${tileX}`;
   
   // First ensure data is sorted by date (most recent first)
   // This should already be the case, but we'll ensure it
@@ -200,6 +202,7 @@ function setTileCache(tileId, data) {
     timestamp: Date.now(),
     expires: Date.now() + CACHE_TTL,
     back: backNum,  // Store the back value explicitly
+    isDeduplicated: false, // Flag to track whether this tile has been deduplicated
     // Pre-calculate cutoff dates for common back values
     cutoffDates: {}
   };
@@ -213,7 +216,28 @@ function setTileCache(tileId, data) {
     }
   });
   
+  // Store in the main cache
   tileCache.set(tileId, cacheEntry);
+  
+  // Update the coordinate index if it exists for this coordinate
+  if (tileCoordIndex.has(tileCoord)) {
+    const coordEntries = tileCoordIndex.get(tileCoord);
+    
+    // Remove any existing entry with the same back value
+    const existingIndex = coordEntries.findIndex(([back, _]) => back === backNum);
+    if (existingIndex !== -1) {
+      coordEntries.splice(existingIndex, 1);
+    }
+    
+    // Add the new entry
+    coordEntries.push([backNum, tileId]);
+    
+    // Re-sort by back value
+    coordEntries.sort((a, b) => a[0] - b[0]);
+    
+    debug.cache(`Updated coordinate index for ${tileCoord}, now has ${coordEntries.length} entries`);
+  }
+  
   debug.cache(`Tile cache set: ${tileId}, entries: ${sortedData.length}, expires in ${CACHE_TTL/1000/60} minutes`);
 }
 
@@ -223,52 +247,86 @@ function setTileCache(tileId, data) {
  * @param {string} tileId - Tile ID
  * @returns {Array|null} Cached data or null if not found/expired
  */
+// Track if we've checked for supersets and found none in this viewport fetch
+// This helps avoid repeated futile superset searches
+let hasSupersetSearchFailed = false;
+
+// Index of tiles by coordinate to speed up lookup
+// Maps tileY:tileX → Array of [backValue, tileId] pairs sorted by backValue
+const tileCoordIndex = new Map();
+
 function getTileCache(tileId) {
   // Parse the tile ID to get components
   const [tileY, tileX, requestedBack] = tileId.split(':');
   const requestedBackNum = parseInt(requestedBack, 10);
+  const tileCoord = `${tileY}:${tileX}`;
   
-  // First check for exact match
-  if (tileCache.has(tileId)) {
-    const cacheEntry = tileCache.get(tileId);
+  // Check if we have any cached entries for this tile coordinate
+  // This is much faster than searching the entire cache
+  if (!tileCoordIndex.has(tileCoord)) {
+    // First time seeing this coordinate - rebuild the index entry for it
+    const coordEntries = [];
     
-    // Check if expired
-    if (Date.now() > cacheEntry.expires) {
-      debug.cache(`Tile cache expired: ${tileId}`);
-      tileCache.delete(tileId);
-      return null;
+    // Scan cache for matching tiles (only done once per coordinate)
+    for (const [cachedTileId, cacheEntry] of tileCache.entries()) {
+      const [cachedY, cachedX, cachedBack] = cachedTileId.split(':');
+      
+      if (cachedY === tileY && cachedX === tileX) {
+        const cachedBackNum = cacheEntry.back || parseInt(cachedBack, 10);
+        
+        // Check if entry is still valid
+        if (Date.now() <= cacheEntry.expires) {
+          coordEntries.push([cachedBackNum, cachedTileId]);
+        } else {
+          debug.cache(`Removing expired entry during index build: ${cachedTileId}`);
+          tileCache.delete(cachedTileId);
+        }
+      }
     }
     
-    debug.cache(`Tile cache hit: ${tileId}, age: ${(Date.now() - cacheEntry.timestamp)/1000} seconds, entries: ${cacheEntry.data.length}`);
+    // Sort entries by back value (ascending)
+    coordEntries.sort((a, b) => a[0] - b[0]);
+    
+    // Store in the index
+    tileCoordIndex.set(tileCoord, coordEntries);
+    
+    debug.cache(`Built tile coordinate index for ${tileCoord} with ${coordEntries.length} entries`);
+  }
+  
+  // Get all entries for this tile coordinate
+  const coordEntries = tileCoordIndex.get(tileCoord);
+  
+  if (coordEntries.length === 0) {
+    debug.cache(`No cache entries found for tile coordinate ${tileCoord}`);
+    return null;
+  }
+  
+  // First check for exact match
+  const exactMatch = coordEntries.find(([backValue, _]) => backValue === requestedBackNum);
+  
+  if (exactMatch) {
+    const exactTileId = exactMatch[1];
+    const cacheEntry = tileCache.get(exactTileId);
+    
+    debug.cache(`Tile cache hit: ${exactTileId}, age: ${(Date.now() - cacheEntry.timestamp)/1000} seconds, entries: ${cacheEntry.data.length}`);
     return cacheEntry.data;
   }
   
-  // No exact match, check for the same tile coordinates with a larger "back" value
-  debug.cache(`Tile cache miss for exact match: ${tileId}, looking for superset...`);
-  
-  // Look for tiles with the same coordinates but larger back values
-  let bestMatchTileId = null;
-  let bestMatchBackValue = null;
-  
-  for (const [cachedTileId, cacheEntry] of tileCache.entries()) {
-    const [cachedY, cachedX, cachedBack] = cachedTileId.split(':');
-    const cachedBackNum = cacheEntry.back || parseInt(cachedBack, 10);
-    
-    // Check if this is the same tile with a larger back value
-    if (cachedY === tileY && cachedX === tileX && 
-        cachedBackNum > requestedBackNum && 
-        (!bestMatchBackValue || cachedBackNum < bestMatchBackValue) && 
-        Date.now() <= cacheEntry.expires) {
-      // This is a candidate - either the first one we found or smaller than the previous one
-      bestMatchTileId = cachedTileId;
-      bestMatchBackValue = cachedBackNum;
-    }
+  // Skip superset check if we've already failed to find a superset in this viewport fetch
+  if (hasSupersetSearchFailed) {
+    debug.cache(`Skipping superset search for ${tileId} (previously failed in this viewport)`);
+    return null;
   }
   
-  // If we found a superset tile, filter its data by date
-  if (bestMatchTileId) {
-    debug.cache(`Found superset tile ${bestMatchTileId} for requested tile ${tileId}`);
-    const supersetEntry = tileCache.get(bestMatchTileId);
+  // No exact match, find the smallest back value that's larger than requested
+  // Since the array is sorted, we can find it efficiently
+  const supersetMatch = coordEntries.find(([backValue, _]) => backValue > requestedBackNum);
+  
+  if (supersetMatch) {
+    const supersetTileId = supersetMatch[1];
+    const supersetEntry = tileCache.get(supersetTileId);
+    
+    debug.cache(`Found superset tile ${supersetTileId} for requested tile ${tileId}`);
     
     // Calculate cutoff date based on requested back value
     let cutoffDate;
@@ -294,8 +352,9 @@ function getTileCache(tileId) {
     return filteredData;
   }
   
-  // No suitable cache entry found
-  debug.cache(`No suitable superset found for tile ${tileId}`);
+  // No suitable cache entry found - mark that we've failed to find a superset
+  debug.cache(`No suitable superset found for tile ${tileId}, skipping future superset searches in this viewport fetch`);
+  hasSupersetSearchFailed = true;
   return null;
 }
 
@@ -772,6 +831,22 @@ const cleanupInterval = setInterval(clearExpired, CLEANUP_INTERVAL);
 // Ensure we don't prevent Node process from exiting
 cleanupInterval.unref();
 
+/**
+ * Resets the superset search failed flag
+ * This should be called at the start of each viewport fetch
+ */
+function resetSupersetSearch() {
+  hasSupersetSearchFailed = false;
+  debug.cache('Reset superset search failed flag');
+  
+  // Optionally clear coordinate index to force rebuild
+  // This keeps the index fresh and removes stale entries
+  if (tileCoordIndex.size > 100) {
+    debug.cache(`Clearing large coordinate index (${tileCoordIndex.size} entries)`);
+    tileCoordIndex.clear();
+  }
+}
+
 module.exports = {
   // Tile-based caching
   getTileId,
@@ -782,6 +857,7 @@ module.exports = {
   getMissingTiles,
   
   // Cache management
+  resetSupersetSearch,
   clearExpired,
   clearAll,
   getStats

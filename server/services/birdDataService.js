@@ -71,6 +71,11 @@ async function getBirdDataForViewport(viewport) {
 async function getBirdDataFromTiles(viewport) {
   const startTime = Date.now();
   
+  // Reset the superset search flag at the start of each viewport fetch
+  // This is needed because the flag is module-level in cacheManager
+  const resetSupersetSearch = require('../utils/cacheManager').resetSupersetSearch;
+  if (resetSupersetSearch) resetSupersetSearch();
+  
   // Get all tile IDs for this viewport
   const tileIds = getTilesForViewport(viewport);
   debug.info(`Viewport requires ${tileIds.length} tiles`);
