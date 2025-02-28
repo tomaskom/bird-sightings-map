@@ -40,7 +40,7 @@ const MAX_INITIAL_BATCHES = constants.API.MAX_INITIAL_BATCHES;
 // Rate limiting protection
 let consecutiveSlowResponses = 0;
 let lastRequestTime = 0;
-let MIN_REQUEST_GAP_MS = 100; // Minimum gap between requests
+let MIN_REQUEST_GAP_MS = 0; // Minimum gap between requests
 
 // Tile settings from constants
 const RADIUS_BUFFER = constants.TILES.RADIUS_BUFFER;
