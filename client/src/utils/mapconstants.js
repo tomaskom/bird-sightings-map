@@ -34,8 +34,7 @@ export const DAYS_BACK_OPTIONS = [
     { value: "1", label: "1" },
     { value: "3", label: "3" },
     { value: "7", label: "7" },
-    { value: "14", label: "14" },
-    { value: "30", label: "30" }
+    { value: "14", label: "14" }
 ];
    
 /**

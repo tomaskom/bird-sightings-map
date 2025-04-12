@@ -51,7 +51,7 @@ let cacheMisses = 0;
 let apiRequestCount = 0;
 
 // Valid back values from client configuration with a maximum of 14 days
-const VALID_BACK_VALUES = [1, 3, 7, MAX_BACK_DAYS]; // Removed 30 days to improve performance
+const VALID_BACK_VALUES = [1, 3, 7, MAX_BACK_DAYS]; // Maximum back days is 14
 
 /**
  * Converts a coordinate to a tile ID based on configured tile size
@@ -425,25 +425,22 @@ function getMissingTiles(tileIds, viewport) {
   // Create a temporary client ID for this request
   const tempClientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   
-  // Get back value and limit to maximum days
-  let backNum = parseInt(viewport.back, 10);
+  // ALWAYS use MAX_BACK_DAYS for fetching tiles
+  // This ensures we have the maximum data available in the cache
+  const backNum = MAX_BACK_DAYS;
   
-  // Enforce maximum back value
-  if (backNum > MAX_BACK_DAYS) {
-    debug.warn(`Requested back=${backNum} exceeds maximum ${MAX_BACK_DAYS}, limiting to ${MAX_BACK_DAYS}`);
-    backNum = MAX_BACK_DAYS;
-  }
+  debug.info(`Using maximum back value (${MAX_BACK_DAYS}) for tile fetching regardless of client request (${viewport.back})`);
   
   // Use the new function to identify missing tiles
   const missingTileIds = markAndIdentifyMissingTiles(tempClientId, tileIds);
   
-  // Convert to the expected format
+  // Convert to the expected format - ALWAYS using MAX_BACK_DAYS
   const missingTiles = missingTileIds.map(tileId => ({
     tileId,
     backValue: backNum
   }));
   
-  debug.cache(`Found ${missingTiles.length} tiles to fetch out of ${tileIds.length} total`);
+  debug.cache(`Found ${missingTiles.length} tiles to fetch out of ${tileIds.length} total with back=${backNum}`);
   return missingTiles;
 }
 

@@ -132,6 +132,13 @@ function isValidViewport(viewport) {
     return false;
   }
   
+  // clientId is optional, but if provided it should be a non-empty string
+  if (viewport.clientId !== undefined && 
+      (typeof viewport.clientId !== 'string' || viewport.clientId.trim() === '')) {
+    debug.debug('Invalid viewport: clientId must be a non-empty string if provided');
+    return false;
+  }
+  
   return true;
 }
 

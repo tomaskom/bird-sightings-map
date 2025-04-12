@@ -31,6 +31,10 @@ async function testTileCaching() {
   console.log('==== Testing Tile-Based Caching ====');
   console.log(`Server URL: ${SERVER_URL}`);
   
+  // Generate a unique client ID for this test run
+  const clientId = `test_client_${Date.now()}`;
+  console.log(`Client ID: ${clientId}`);
+  
   // Sample viewports to test
   const viewports = [
     // Santa Cruz, CA area
@@ -71,14 +75,22 @@ async function testTileCaching() {
   // Clear cache before testing
   await clearCache();
   
+  // Set up the SSE connection for tile updates
+  console.log('\n=== Setting up SSE connection for tile updates ===');
+  setupTileUpdatesListener(clientId);
+  
   // Now test actual data fetching - first call should populate cache
   console.log('\n=== Testing data fetching (cold cache) ===');
   const testViewport = viewports[0]; // Use Santa Cruz viewport
-  await fetchBirdData(testViewport);
+  await fetchBirdData({...testViewport, clientId});
+  
+  // Wait a bit for background tiles to load
+  console.log('\nWaiting 10 seconds for background tiles to load...');
+  await new Promise(resolve => setTimeout(resolve, 10000));
   
   // Second call should use cache
   console.log('\n=== Testing data fetching (warm cache) ===');
-  await fetchBirdData(testViewport);
+  await fetchBirdData({...testViewport, clientId});
   
   // Get cache stats at the end
   await getCacheStats();
@@ -138,6 +150,11 @@ async function fetchBirdData(viewport) {
       back: viewport.back
     });
     
+    // Add clientId if provided
+    if (viewport.clientId) {
+      queryParams.append('clientId', viewport.clientId);
+    }
+    
     const url = `${SERVER_URL}/api/birds/viewport?${queryParams}`;
     console.log(`Fetching bird data for viewport: ${url}`);
     
@@ -148,17 +165,122 @@ async function fetchBirdData(viewport) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
     
-    const data = await response.json();
-    console.log(`Received ${data.length} bird sightings in ${Date.now() - startTime}ms`);
+    const responseData = await response.json();
+    
+    // The structure is now different with the new API response format
+    const { birds, metadata } = responseData;
+    
+    console.log(`Received ${birds.length} bird sightings in ${Date.now() - startTime}ms`);
+    
+    // Log metadata about background loading
+    if (metadata && metadata.hasBackgroundLoading) {
+      console.log(`Background loading in progress: ${metadata.pendingTileCount} pending tiles`);
+    }
     
     // Display first few bird records
     console.log('First few birds:');
-    data.slice(0, 3).forEach((bird, index) => {
+    birds.slice(0, 3).forEach((bird, index) => {
       console.log(`  ${index+1}. ${bird.comName} (${bird.speciesCode}) at [${bird.lat}, ${bird.lng}]`);
     });
     
+    return responseData;
   } catch (error) {
     console.error('Error fetching bird data:', error);
+    return null;
+  }
+}
+
+/**
+ * Sets up an SSE connection to listen for tile updates
+ * @param {string} clientId - Client ID for the SSE connection
+ */
+function setupTileUpdatesListener(clientId) {
+  try {
+    // We're not using a real EventSource here since this is Node.js
+    // Instead, we'll manually set up a streaming connection
+    const url = `${SERVER_URL}/api/birds/tile-updates?clientId=${clientId}`;
+    console.log(`Setting up SSE connection: ${url}`);
+    
+    // Make a request to the SSE endpoint
+    fetch(url)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        
+        console.log('SSE connection established');
+        
+        // Process the streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        function processEvents() {
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              console.log('SSE connection closed');
+              return;
+            }
+            
+            // Decode and append to buffer
+            buffer += decoder.decode(value, { stream: true });
+            
+            // Process complete events in buffer
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || ''; // Keep the last incomplete event in the buffer
+            
+            for (const event of events) {
+              if (event.startsWith('data: ')) {
+                const data = event.slice(6); // Remove 'data: ' prefix
+                try {
+                  const parsedData = JSON.parse(data);
+                  handleTileUpdate(parsedData);
+                } catch (e) {
+                  console.error('Error parsing SSE data:', e);
+                }
+              }
+            }
+            
+            // Continue reading
+            processEvents();
+          }).catch(err => {
+            console.error('Error reading SSE stream:', err);
+          });
+        }
+        
+        processEvents();
+      })
+      .catch(error => {
+        console.error('Error setting up SSE connection:', error);
+      });
+  } catch (error) {
+    console.error('Error setting up tile updates listener:', error);
+  }
+}
+
+/**
+ * Handles a tile update event
+ * @param {Object} data - Tile update data
+ */
+function handleTileUpdate(data) {
+  if (data.type === 'connected') {
+    console.log('SSE connected:', data.message);
+    return;
+  }
+  
+  if (data.type === 'tileUpdate') {
+    console.log('\n=== Received Tile Update ===');
+    console.log(`Completed Tiles: ${data.data.completedTileIds.length}`);
+    
+    if (data.data.isComplete) {
+      console.log('All background tiles completed!');
+    } else {
+      console.log(`Batch ${data.data.batchNumber}/${data.data.totalBatches} completed`);
+      console.log(`Remaining tiles: ${data.data.remainingTileIds.length}`);
+    }
+    
+    // Here in a real client you would refresh the map with the new data
+    console.log('Would update map display with new data here...');
   }
 }
 
