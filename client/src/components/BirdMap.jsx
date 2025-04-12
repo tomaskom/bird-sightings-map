@@ -239,7 +239,9 @@ const BirdMap = () => {
   const [isMapAnimating, setIsMapAnimating] = useState(false);
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
+  const [clientId] = useState(() => `client_${Date.now()}_${Math.floor(Math.random() * 1000000)}`);
   const inputRef = useRef(null);
+  const eventSourceRef = useRef(null);
   
   // Loading state manager - use this to track multiple loading operations
   const loadingStateRef = useRef(0);
@@ -740,8 +742,12 @@ const BirdMap = () => {
    * @returns {Promise<Array>} Bird data for the segment
    */
   const fetchViewportSegment = useCallback(async (viewport) => {
-    // Create the viewport API URL
-    const apiUrl = buildViewportApiUrl(viewport);
+    // Create the viewport API URL with clientId for SSE notifications
+    const apiParams = {
+      ...viewport,
+      clientId: clientId // Include clientId for server notifications
+    };
+    const apiUrl = buildViewportApiUrl(apiParams);
     
     debug.info('Fetching segment data:', {
       viewport
@@ -754,40 +760,24 @@ const BirdMap = () => {
     }
     
     return await response.json();
-  }, []);
+  }, [clientId]);
 
   /**
    * Merges existing bird data with new data from viewport segments
-   * Handles deduplication where needed
+   * Since the server already deduplicates birds across tiles, we can simply combine the arrays
+   * and let the server handle deduplication.
    * @param {Array} existingData - Existing bird data
    * @param {Array} newData - New bird data to merge
-   * @returns {Array} Combined bird data without duplicates
+   * @returns {Array} Combined bird data
    */
   const mergeBirdData = useCallback((existingData, newData) => {
     // If either array is empty, return the other
     if (!existingData || existingData.length === 0) return newData;
     if (!newData || newData.length === 0) return existingData;
     
-    // Use a map for efficient deduplication
-    const uniqueBirds = new Map();
-    
-    // Add existing birds to the map
-    existingData.forEach(bird => {
-      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-      uniqueBirds.set(key, bird);
-    });
-    
-    // Add new birds, overwriting existing if notable
-    newData.forEach(bird => {
-      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-      
-      if (!uniqueBirds.has(key) || (bird.isNotable && !uniqueBirds.get(key).isNotable)) {
-        uniqueBirds.set(key, bird);
-      }
-    });
-    
-    // Convert map back to array
-    return Array.from(uniqueBirds.values());
+    // Simply combine the arrays - server has already deduplicated data
+    // This simplifies the client code and improves performance
+    return [...existingData, ...newData];
   }, []);
 
   /**
@@ -884,8 +874,12 @@ const BirdMap = () => {
         // Full fetch required
         debug.info('Performing complete viewport fetch');
         
-        // Create the viewport API URL
-        const apiUrl = buildViewportApiUrl(currentViewport);
+        // Create the viewport API URL with clientId for SSE notifications
+        const apiParams = {
+          ...currentViewport,
+          clientId: clientId // Include clientId for server notifications
+        };
+        const apiUrl = buildViewportApiUrl(apiParams);
         
         debug.info('Fetching bird data:', {
           viewport: currentViewport
@@ -975,6 +969,166 @@ const BirdMap = () => {
     }
   }, [selectedSpecies, allBirdData, startLoading, endLoading]);
 
+  // Set up SSE for tile update notifications
+  useEffect(() => {
+    if (!clientId) return;
+    
+    // Set up SSE connection
+    debug.info('Setting up SSE connection for tile updates with clientId:', clientId);
+    
+    const connectEventSource = () => {
+      try {
+        // Close existing connection if any
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+        }
+        
+        // Create new EventSource - make sure to use the API URL from environment
+        const eventSource = new EventSource(`${import.meta.env.VITE_API_URL}/api/birds/tile-updates?clientId=${clientId}`);
+        eventSourceRef.current = eventSource;
+        
+        // Handle connection open
+        eventSource.onopen = () => {
+          debug.info('SSE connection established');
+        };
+        
+        // Handle messages
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            debug.debug('Received SSE message:', data);
+            
+            if (data.type === 'connected') {
+              debug.info('SSE connection initialized:', data.message);
+            } else if (data.type === 'tileUpdate') {
+              // Handle tile update notification
+              handleTileUpdate(data.data);
+            }
+          } catch (error) {
+            debug.error('Error parsing SSE message:', error);
+          }
+        };
+        
+        // Handle errors
+        eventSource.onerror = (error) => {
+          debug.error('SSE connection error:', error);
+          // Try to reconnect after a delay
+          setTimeout(() => {
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close();
+              connectEventSource();
+            }
+          }, 5000);
+        };
+      } catch (error) {
+        debug.error('Error setting up SSE connection:', error);
+      }
+    };
+    
+    // Initial connection
+    connectEventSource();
+    
+    // Cleanup on unmount
+    return () => {
+      if (eventSourceRef.current) {
+        debug.info('Closing SSE connection');
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
+  }, [clientId]);
+  
+  /**
+   * Handles tile update notifications from the server via SSE
+   * Refreshes the map with new data from background-loaded tiles
+   * @param {Object} updateData - Data about the tile update
+   */
+  const handleTileUpdate = useCallback((updateData) => {
+    debug.info('Received tile update:', { 
+      completedTiles: updateData.completedTileIds.length,
+      isComplete: updateData.isComplete || false
+    });
+    
+    // If this update doesn't match our current viewport, ignore it
+    if (lastFetchViewport && updateData.viewport) {
+      const viewportChanged = 
+        Math.abs(lastFetchViewport.minLat - updateData.viewport.minLat) > 0.001 ||
+        Math.abs(lastFetchViewport.maxLat - updateData.viewport.maxLat) > 0.001 ||
+        Math.abs(lastFetchViewport.minLng - updateData.viewport.minLng) > 0.001 ||
+        Math.abs(lastFetchViewport.maxLng - updateData.viewport.maxLng) > 0.001;
+      
+      if (viewportChanged) {
+        debug.debug('Ignoring tile update for different viewport');
+        return;
+      }
+    }
+    
+    // Check if our map is ready
+    if (!mapRef) {
+      debug.debug('Map not ready, ignoring tile update');
+      return;
+    }
+    
+    // Force a re-fetch by creating a simulated map center change
+    debug.info('Background tiles loaded, refreshing map data');
+    
+    // Get current bounds
+    const bounds = mapRef.getBounds();
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    
+    // Create new viewport parameters
+    const currentViewport = {
+      minLat: sw.lat,
+      maxLat: ne.lat,
+      minLng: sw.lng,
+      maxLng: ne.lng,
+      back
+    };
+    
+    // Reset the last fetch viewport to force a fresh data fetch
+    setLastFetchViewport(null);
+    
+    // Use a small timeout to ensure the state update happens
+    setTimeout(() => {
+      // Get bird data for the current viewport
+      const apiParams = {
+        ...currentViewport,
+        clientId: clientId
+      };
+      
+      const apiUrl = buildViewportApiUrl(apiParams);
+      
+      // Manual fetch to bypass caching
+      debug.info('Manually refreshing data with background tiles');
+      fetch(apiUrl)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Update all data
+          setAllBirdData(data);
+          
+          // Filter by current species
+          const filteredData = filterBirdDataBySpecies(data);
+          
+          // Process and display
+          processAndDisplayFilteredData(filteredData);
+          
+          debug.info('Map refreshed with background tile data:', {
+            birds: data.length,
+            filtered: filteredData.length
+          });
+        })
+        .catch(error => {
+          debug.error('Error refreshing map with background tiles:', error);
+        });
+    }, 100);
+  }, [mapRef, lastFetchViewport, fetchBirdData, clientId, back, setLastFetchViewport, filterBirdDataBySpecies, processAndDisplayFilteredData, buildViewportApiUrl]);
+  
   // Load URL parameters on component mount
   useEffect(() => {
     const loadUrlParams = async () => {

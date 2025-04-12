@@ -149,17 +149,64 @@ async function getBirdDataFromTiles(viewport) {
     if (batches.length > MAX_INITIAL_BATCHES) {
       debug.info(`Fetching ${batches.length - MAX_INITIAL_BATCHES} remaining batches in background`);
       
+      // Extract client ID from viewport if available
+      const clientId = viewport.clientId;
+      
+      // Collect the tile IDs for notification
+      const backgroundTileIds = [];
+      for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
+        backgroundTileIds.push(...batches[i].map(tile => tile.tileId));
+      }
+      
       // We don't await this promise - it runs in the background while we return data
       (async () => {
         try {
+          // Keep track of completed batches for notification
+          const completedTileIds = [];
+          
           for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
             const batch = batches[i];
             debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
             
             // Process batch in parallel - pass both tile ID and back value to fetch function
             await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
+            
+            // Add batch tile IDs to completed list
+            const batchTileIds = batch.map(tile => tile.tileId);
+            completedTileIds.push(...batchTileIds);
+            
+            // Notify after each batch completes
+            if (constants.notifyTileUpdate && clientId) {
+              constants.notifyTileUpdate(clientId, {
+                completedTileIds: batchTileIds,
+                batchNumber: i + 1,
+                totalBatches: batches.length,
+                remainingTileIds: backgroundTileIds.filter(id => !completedTileIds.includes(id)),
+                viewport: {
+                  minLat: viewport.minLat,
+                  maxLat: viewport.maxLat,
+                  minLng: viewport.minLng,
+                  maxLng: viewport.maxLng
+                }
+              });
+            }
           }
+          
           debug.info(`Background tile fetching complete - all ${missingTiles.length} tiles now in cache`);
+          
+          // Final notification when all background fetching is complete
+          if (constants.notifyTileUpdate && clientId) {
+            constants.notifyTileUpdate(clientId, {
+              completedTileIds: backgroundTileIds,
+              isComplete: true,
+              viewport: {
+                minLat: viewport.minLat,
+                maxLat: viewport.maxLat,
+                minLng: viewport.minLng,
+                maxLng: viewport.maxLng
+              }
+            });
+          }
         } catch (error) {
           debug.error(`Error in background tile fetching:`, error);
         }
@@ -181,33 +228,12 @@ async function getBirdDataFromTiles(viewport) {
     }
   }
   
-  // Simple deduplication for any edge cases
-  // This should be much more efficient now that birds are clipped to tile boundaries
+  // No deduplication needed for cached tiles - they were already deduplicated when loaded
+  // We'll only count for logging purposes
   const startDedupeTime = Date.now();
+  const finalData = allBirds;
   
-  // Use a map to deduplicate based on a unique key
-  const uniqueBirds = new Map();
-  
-  for (const bird of allBirds) {
-    const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-    
-    // For duplicates, prefer the one marked as notable
-    if (!uniqueBirds.has(key) || (bird.isNotable && !uniqueBirds.get(key).isNotable)) {
-      uniqueBirds.set(key, bird);
-    }
-  }
-  
-  // Convert back to array
-  const finalData = Array.from(uniqueBirds.values());
-  
-  const dupsRemoved = allBirds.length - finalData.length;
-  debug.info(`Deduplicated ${allBirds.length} observations into ${finalData.length} unique records (${dupsRemoved} duplicates removed) in ${Date.now() - startDedupeTime}ms`);
-  
-  // With our new tile clipping approach, we shouldn't need complex cross-tile deduplication
-  // This deduplication is now only needed for edge cases (like birds exactly on boundaries)
-  if (dupsRemoved > 0) {
-    debug.info(`Note: Found ${dupsRemoved} duplicate birds across tiles - this should be rare with tile clipping`);
-  }
+  debug.info(`Skipping deduplication for ${finalData.length} observations from cache (already deduplicated) in ${Date.now() - startDedupeTime}ms`);
   
   debug.info(`Completed tile-based retrieval in ${Date.now() - startTime}ms`);
   

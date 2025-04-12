@@ -398,6 +398,7 @@ export const fetchRegionSpecies = async (regionCode) => {
  * @param {number} viewport.minLng - Minimum longitude
  * @param {number} viewport.maxLng - Maximum longitude
  * @param {string} viewport.back - Number of days to look back
+ * @param {string} [viewport.clientId] - Optional client ID for SSE notifications
  * @returns {string} Formatted API URL with query parameters
  */
 export const buildViewportApiUrl = (viewport) => {
@@ -408,6 +409,11 @@ export const buildViewportApiUrl = (viewport) => {
     maxLng: viewport.maxLng.toString(),
     back: viewport.back.toString()
   });
+  
+  // Add clientId parameter if provided
+  if (viewport.clientId) {
+    searchParams.append('clientId', viewport.clientId);
+  }
 
   return `${import.meta.env.VITE_API_URL}/api/birds/viewport?${searchParams}`;
 };

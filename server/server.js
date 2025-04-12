@@ -33,13 +33,15 @@ const { debug } = require('./utils/debug');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { getBirdDataForViewport } = require('./services/birdDataService');
 const { isValidViewport } = require('./utils/viewportUtils');
+const constants = require('./utils/serverConstants');
 const { 
   getStats, 
   clearExpired,
   getTilesForViewport,
   getTileCenter,
   getTileId,
-  getTileCache
+  getTileCache,
+  getMissingTiles
 } = require('./utils/cacheManager');
 
 // Initialize Express app
@@ -332,6 +334,43 @@ const fetchRegionInfo = async (regionCode) => {
 };
 
 
+// Create a map to store SSE clients
+const tileUpdateClients = new Map(); // clientId -> response object
+
+/**
+ * Server-Sent Events endpoint for tile updates
+ * Allows clients to subscribe to notifications when background-loaded tiles are ready
+ * @route GET /api/birds/tile-updates
+ */
+app.get('/api/birds/tile-updates', (req, res) => {
+  const clientId = req.query.clientId;
+  
+  if (!clientId) {
+    return res.status(400).json({ error: 'Client ID is required' });
+  }
+  
+  debug.info(`Client ${clientId} connected to tile updates SSE`);
+  
+  // Configure SSE response headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+  
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Connected to tile updates' })}\n\n`);
+  
+  // Store client connection
+  tileUpdateClients.set(clientId, res);
+  
+  // Remove client when connection closes
+  req.on('close', () => {
+    debug.info(`Client ${clientId} disconnected from tile updates SSE`);
+    tileUpdateClients.delete(clientId);
+  });
+});
+
 // API Routes
 
 app.get('/api/region-species/:regionCode', async (req, res) => {
@@ -434,7 +473,7 @@ app.get('/api/birds/viewport', async (req, res) => {
   debug.info('Received viewport-based bird sighting request:', req.query);
   
   try {
-    const { minLat, maxLat, minLng, maxLng, back = '7' } = req.query;
+    const { minLat, maxLat, minLng, maxLng, back = '7', clientId } = req.query;
     
     // Create viewport object
     const viewport = {
@@ -442,7 +481,8 @@ app.get('/api/birds/viewport', async (req, res) => {
       maxLat,
       minLng,
       maxLng,
-      back
+      back,
+      clientId // Include clientId for SSE notifications
     };
     
     // Validate viewport parameters
@@ -452,6 +492,9 @@ app.get('/api/birds/viewport', async (req, res) => {
     
     // Get bird data for this viewport (both regular and rare)
     const data = await getBirdDataForViewport(viewport);
+    
+    // For backward compatibility, directly send the bird data array
+    // This keeps the response format the same as before
     res.json(data);
   } catch (error) {
     debug.error('Error handling viewport bird request:', error.message);
@@ -1060,7 +1103,6 @@ app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
   };
   
   try {
-    const startTime = Date.now();
     
     const tileIds = getTilesForViewport(viewport);
     debug.tile(`Generated ${tileIds.length} tiles for viewport`);
@@ -1130,6 +1172,50 @@ app.get('*', (req, res) => {
   debug.debug('Serving React app for path:', req.path);
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
+
+/**
+ * Notifies connected clients that new tile data is available
+ * @param {string} clientId - Client ID to notify (or null for all clients)
+ * @param {Object} tileData - Data about the tiles that are now available
+ */
+function notifyTileUpdate(clientId, tileData) {
+  // If no client ID, send to all connected clients
+  if (!clientId) {
+    debug.info(`Broadcasting tile update to ${tileUpdateClients.size} clients`);
+    
+    for (const [id, client] of tileUpdateClients.entries()) {
+      try {
+        client.write(`data: ${JSON.stringify({
+          type: 'tileUpdate',
+          data: tileData
+        })}\n\n`);
+      } catch (error) {
+        debug.error(`Error notifying client ${id}:`, error);
+        // Remove failed clients
+        tileUpdateClients.delete(id);
+      }
+    }
+    return;
+  }
+  
+  // Send to specific client
+  const client = tileUpdateClients.get(clientId);
+  if (client) {
+    try {
+      debug.info(`Notifying client ${clientId} of tile update`);
+      client.write(`data: ${JSON.stringify({
+        type: 'tileUpdate',
+        data: tileData
+      })}\n\n`);
+    } catch (error) {
+      debug.error(`Error notifying client ${clientId}:`, error);
+      tileUpdateClients.delete(clientId);
+    }
+  }
+}
+
+// Expose the notification function to other modules
+constants.notifyTileUpdate = notifyTileUpdate;
 
 // Start server
 app.listen(port, () => {
