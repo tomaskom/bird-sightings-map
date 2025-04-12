@@ -30,7 +30,8 @@ const {
   getTileCache,
   setTileCache,
   getMissingTiles,
-  tileCache
+  tileCache,
+  MAX_BACK_DAYS
 } = require('../utils/cacheManager');
 
 // API request settings from constants
@@ -72,23 +73,27 @@ async function getBirdDataForViewport(viewport) {
 async function getBirdDataFromTiles(viewport) {
   const startTime = Date.now();
   
-  // Reset the superset search flag at the start of each viewport fetch
-  // This is needed because the flag is module-level in cacheManager
-  const resetSupersetSearch = require('../utils/cacheManager').resetSupersetSearch;
-  if (resetSupersetSearch) resetSupersetSearch();
-  
-  // Get all tile IDs for this viewport
+  // Get all tile IDs for this viewport (now without back value in IDs)
   const tileIds = getTilesForViewport(viewport);
   debug.info(`Viewport requires ${tileIds.length} tiles`);
   
+  // Get requested back period and apply maximum limit
+  let backValue = parseInt(viewport.back, 10);
+  
+  // Enforce maximum back value to improve performance
+  if (backValue > MAX_BACK_DAYS) {
+    debug.warn(`Requested back=${backValue} exceeds maximum ${MAX_BACK_DAYS}, limiting to ${MAX_BACK_DAYS}`);
+    backValue = MAX_BACK_DAYS;
+  }
+  
   // Check which tiles we need to fetch (not in cache)
-  const missingTileIds = getMissingTiles(tileIds);
+  const missingTiles = getMissingTiles(tileIds, viewport);
   
   // If there are no missing tiles, we can skip fetching
-  if (missingTileIds.length === 0) {
-    debug.info('🎉 All tiles in cache - no API requests needed!');
+  if (missingTiles.length === 0) {
+    debug.info('🎉 All tiles in cache with sufficient back data - no API requests needed!');
   } else {
-    debug.info(`Need to fetch ${missingTileIds.length} missing tiles`);
+    debug.info(`Need to fetch ${missingTiles.length} missing tiles with back=${backValue}`);
     
     // Sort tiles - prioritize center tiles over edge tiles
     // This ensures the most important data is fetched first
@@ -98,25 +103,22 @@ async function getBirdDataFromTiles(viewport) {
     };
     
     // Calculate distance from center for each tile
-    const tilesWithDistance = missingTileIds.map(tileId => {
-      const center = getTileCenter(tileId);
+    const tilesWithDistance = missingTiles.map(tile => {
+      const center = getTileCenter(tile.tileId);
       const distance = Math.sqrt(
         Math.pow(center.lat - viewportCenter.lat, 2) + 
         Math.pow(center.lng - viewportCenter.lng, 2)
       );
-      return { tileId, distance };
+      return { ...tile, distance };
     });
     
     // Sort by distance from center
     tilesWithDistance.sort((a, b) => a.distance - b.distance);
     
-    // Extract sorted tile IDs
-    const sortedMissingTileIds = tilesWithDistance.map(tile => tile.tileId);
-    
     // Process in batches, starting with the center tiles
     const batches = [];
-    for (let i = 0; i < sortedMissingTileIds.length; i += MAX_PARALLEL_REQUESTS) {
-      batches.push(sortedMissingTileIds.slice(i, i + MAX_PARALLEL_REQUESTS));
+    for (let i = 0; i < tilesWithDistance.length; i += MAX_PARALLEL_REQUESTS) {
+      batches.push(tilesWithDistance.slice(i, i + MAX_PARALLEL_REQUESTS));
     }
     
     // If we have many batches, limit to the most essential ones
@@ -129,8 +131,8 @@ async function getBirdDataFromTiles(viewport) {
       const batch = initialBatches[i];
       debug.info(`Fetching batch ${i+1}/${initialBatches.length} (${batch.length} tiles)`);
       
-      // Process batch in parallel
-      await Promise.all(batch.map(fetchTileData));
+      // Process batch in parallel - pass both tile ID and back value to fetch function
+      await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
     }
     
     // If there are remaining batches, fetch them in the background
@@ -139,20 +141,25 @@ async function getBirdDataFromTiles(viewport) {
       
       // We don't await this promise - it runs in the background while we return data
       (async () => {
-        for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
-          const batch = batches[i];
-          debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
-          
-          // Process batch in parallel
-          await Promise.all(batch.map(fetchTileData));
+        try {
+          for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
+            const batch = batches[i];
+            debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
+            
+            // Process batch in parallel - pass both tile ID and back value to fetch function
+            await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
+          }
+          debug.info(`Background tile fetching complete - all ${missingTiles.length} tiles now in cache`);
+        } catch (error) {
+          debug.error(`Error in background tile fetching:`, error);
         }
-        debug.info(`Background tile fetching complete - all ${missingTileIds.length} tiles now in cache`);
       })();
     }
   }
   
   // Collect data from all tiles (now available in cache)
-  const tileDataPromises = tileIds.map(tileId => getTileCache(tileId));
+  // Pass back value to getTileCache for each tile
+  const tileDataPromises = tileIds.map(tileId => getTileCache(tileId, backValue));
   const tileData = await Promise.all(tileDataPromises);
   
   // Collect all bird observations from all tiles
@@ -271,15 +278,17 @@ async function getBirdDataFromTiles(viewport) {
 
 /**
  * Fetches data for a single tile and stores it in cache
- * @param {string} tileId - Tile ID
+ * @param {string} tileId - Tile ID (format: tileY:tileX)
+ * @param {number} backValue - Number of days to look back
  * @returns {Promise<Array>} Bird sighting data for the tile
  */
-async function fetchTileData(tileId) {
+async function fetchTileData(tileId, backValue) {
   const tileStartTime = Date.now();
   
   try {
-    // Get the tile center coordinates
+    // Get the tile center coordinates and add back value
     const tileCenter = getTileCenter(tileId);
+    tileCenter.back = backValue;
     
     // Using a fixed radius per tile based on the tile size
     // We add a buffer to ensure we get all data at the tile boundaries
@@ -298,10 +307,10 @@ async function fetchTileData(tileId) {
       lat: tileCenter.lat,
       lng: tileCenter.lng,
       dist: radius,
-      back: tileCenter.back
+      back: backValue
     };
     
-    debug.info(`Fetching tile ${tileId} with center (${tileCenter.lat.toFixed(4)}, ${tileCenter.lng.toFixed(4)}), radius ${radius.toFixed(2)}km, days back ${tileCenter.back}`);
+    debug.info(`Fetching tile ${tileId} with center (${tileCenter.lat.toFixed(4)}, ${tileCenter.lng.toFixed(4)}), radius ${radius.toFixed(2)}km, days back ${backValue}`);
     
     // Fetch both regular and notable birds
     const [recentBirds, notableBirds] = await Promise.all([
@@ -343,15 +352,17 @@ async function fetchTileData(tileId) {
     // Combine both lists - use a standard deduplication to avoid duplicates
     const combinedData = deduplicateBirdsByLocation([...markedRecent, ...markedNotable]);
     
-    // Cache the tile data
-    setTileCache(tileId, combinedData);
+    // Cache the tile data - passing back value explicitly
+    setTileCache(tileId, combinedData, backValue);
     
-    debug.info(`Tile ${tileId} complete: ${combinedData.length} birds in ${Date.now() - tileStartTime}ms`);
+    debug.info(`Tile ${tileId} complete: ${combinedData.length} birds with back=${backValue} in ${Date.now() - tileStartTime}ms`);
     return combinedData;
   } catch (error) {
-    debug.error(`Error fetching tile ${tileId}:`, error);
+    debug.error(`Error fetching tile ${tileId} with back=${backValue}:`, error);
+    
     // Store empty array in cache to avoid repeated failed requests
-    setTileCache(tileId, []);
+    setTileCache(tileId, [], backValue);
+    
     return [];
   }
 }
