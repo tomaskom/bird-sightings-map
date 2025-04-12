@@ -82,7 +82,8 @@ initializeMapIcons();
  */
 const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect, mapRef }) => {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [birds, setBirds] = useState(location.birds);
+  // Use a ref to track bird photo updates without causing rerenders
+  const birdPhotos = useRef({});
   const markerRef = useRef();
   const photoUnsubscribers = useRef([]);
   
@@ -92,6 +93,9 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect,
     photoUnsubscribers.current.forEach(unsubscribe => unsubscribe());
     photoUnsubscribers.current = [];
     
+    // Reset photo data when location.birds change
+    birdPhotos.current = {};
+    
     // Skip if no birds or no _speciesKey (indicates older data format)
     if (!location.birds || !location.birds.length || !location.birds[0]._speciesKey) {
       return;
@@ -100,16 +104,17 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect,
     // Subscribe to photo updates for each bird
     const newUnsubscribers = location.birds.map((bird, index) => {
       return subscribeToPhotoUpdates(bird, (photoData) => {
-        // Update the bird with new photo data
-        setBirds(currentBirds => {
-          const newBirds = [...currentBirds];
-          newBirds[index] = {
-            ...newBirds[index],
-            thumbnailUrl: photoData.thumbnailUrl,
-            fullPhotoUrl: photoData.fullPhotoUrl
-          };
-          return newBirds;
-        });
+        // Store photo data in ref
+        birdPhotos.current[index] = {
+          thumbnailUrl: photoData.thumbnailUrl,
+          fullPhotoUrl: photoData.fullPhotoUrl
+        };
+        
+        // Force popup update if open
+        if (isPopupOpen) {
+          setIsPopupOpen(false);
+          setTimeout(() => setIsPopupOpen(true), 0);
+        }
       });
     });
     
@@ -120,7 +125,7 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect,
       photoUnsubscribers.current.forEach(unsubscribe => unsubscribe());
       photoUnsubscribers.current = [];
     };
-  }, [location.birds]);
+  }, [location.birds, isPopupOpen]);
 
   const eventHandlers = useCallback({
     popupopen: () => {
@@ -163,7 +168,11 @@ const BirdMarker = memo(({ location, icon, notableSpeciesCodes, onSpeciesSelect,
       >
         {isPopupOpen && (
           <BirdPopupContent 
-            birds={birds} 
+            birds={location.birds.map((bird, index) => ({
+              ...bird,
+              thumbnailUrl: birdPhotos.current[index]?.thumbnailUrl || bird.thumbnailUrl,
+              fullPhotoUrl: birdPhotos.current[index]?.fullPhotoUrl || bird.fullPhotoUrl
+            }))} 
             notableSpeciesCodes={notableSpeciesCodes}
             onBirdSelect={handleBirdSelect}
           />
@@ -764,8 +773,7 @@ const BirdMap = () => {
 
   /**
    * Merges existing bird data with new data from viewport segments
-   * Since the server already deduplicates birds across tiles, we can simply combine the arrays
-   * and let the server handle deduplication.
+   * Performs client-side deduplication to ensure we don't have duplicate birds
    * @param {Array} existingData - Existing bird data
    * @param {Array} newData - New bird data to merge
    * @returns {Array} Combined bird data
@@ -775,9 +783,28 @@ const BirdMap = () => {
     if (!existingData || existingData.length === 0) return newData;
     if (!newData || newData.length === 0) return existingData;
     
-    // Simply combine the arrays - server has already deduplicated data
-    // This simplifies the client code and improves performance
-    return [...existingData, ...newData];
+    debug.info(`Merging ${existingData.length} existing birds with ${newData.length} new birds`);
+    
+    // Create a Map to deduplicate by a unique key
+    const uniqueBirds = new Map();
+    
+    // Process existing data first (to be overwritten by newer data if duplicates exist)
+    existingData.forEach(bird => {
+      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
+      uniqueBirds.set(key, bird);
+    });
+    
+    // Add new data, overwriting any duplicates
+    newData.forEach(bird => {
+      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
+      uniqueBirds.set(key, bird);
+    });
+    
+    // Convert back to array
+    const result = Array.from(uniqueBirds.values());
+    debug.info(`Merged and deduplicated: ${result.length} birds (removed ${existingData.length + newData.length - result.length} duplicates)`);
+    
+    return result;
   }, []);
 
   /**
@@ -1109,8 +1136,13 @@ const BirdMap = () => {
           return response.json();
         })
         .then(data => {
-          // Update all data
+          // Clear previous data completely before setting new data
+          // This ensures we don't accumulate duplicates
+          debug.info(`Replacing data with ${data.length} birds from updated tiles`);
+          
+          // Important: Directly set the new data instead of merging with old data
           setAllBirdData(data);
+          setLastFetchViewport(currentViewport);
           
           // Filter by current species
           const filteredData = filterBirdDataBySpecies(data);
@@ -1262,9 +1294,9 @@ const BirdMap = () => {
               setIsMapAnimating={setIsMapAnimating} 
               onAnimationComplete={handleMoveEnd} 
             />
-            {birdSightings.map((location, index) => (
+            {birdSightings.map((location) => (
               <BirdMarker
-                key={`${location.lat}-${location.lng}-${index}`}
+                key={`${location.lat}-${location.lng}`}
                 location={location}
                 icon={location.birds.length > 1 
                   ? createMultiBirdIcon(
