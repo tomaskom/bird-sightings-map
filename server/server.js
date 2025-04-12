@@ -653,6 +653,20 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
         </div>
         
         <div class="stat-card">
+          <div class="stat-title">CACHE HIT RATIO</div>
+          <div class="stat-value">${stats.metricsStats?.cacheHitRatio || '0%'}</div>
+          <div>${stats.metricsStats?.cacheHits || 0} hits, ${stats.metricsStats?.cacheMisses || 0} misses</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-title">API REQUESTS</div>
+          <div class="stat-value">${stats.metricsStats?.apiRequestCount || 0}</div>
+          <div>~${stats.metricsStats?.apiRequestsPerHour || 0} requests/hour</div>
+        </div>
+      </div>
+      
+      <div class="dashboard">
+        <div class="stat-card">
           <div class="stat-title">COMPRESSION</div>
           <div class="stat-value">${stats.compressionStats?.compressionRatio || '0%'}</div>
           <div>${stats.compressionStats?.totalCompressedBirds.toLocaleString() || 0} records (compressed from ${stats.compressionStats?.totalOriginalBirds.toLocaleString() || 0})</div>

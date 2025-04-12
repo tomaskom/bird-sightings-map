@@ -36,8 +36,19 @@ const MAX_LATITUDE = constants.GEO.MAX_LATITUDE;
 // Map from coordinate key (tileY:tileX) to tile entry with maximum back data
 const tileCache = new Map();
 
+// Client tracking system - Maps from clientId to set of active tiles
+const activeClientTiles = new Map(); // clientId -> { tiles: Set, lastActive: timestamp }
+
 // Maximum number of days to look back - limiting this improves performance dramatically
 const MAX_BACK_DAYS = 14;
+
+// Timeout for stale client data (5 minutes)
+const STALE_CLIENT_TIMEOUT = 5 * 60 * 1000;
+
+// Cache statistics counters
+let cacheHits = 0;
+let cacheMisses = 0;
+let apiRequestCount = 0;
 
 // Valid back values from client configuration with a maximum of 14 days
 const VALID_BACK_VALUES = [1, 3, 7, MAX_BACK_DAYS]; // Removed 30 days to improve performance
@@ -331,6 +342,7 @@ function getTileCache(tileId, backValue) {
   // No entry or expired entry
   if (!cacheEntry || Date.now() > cacheEntry.expires) {
     debug.cache(`No valid cache entry found for tile ${tileId}`);
+    cacheMisses++;
     
     // Clean up expired entry if it exists
     if (cacheEntry && Date.now() > cacheEntry.expires) {
@@ -344,6 +356,7 @@ function getTileCache(tileId, backValue) {
   // Check if this entry's maxBack covers the requested back value
   if (cacheEntry.maxBack < requestedBackNum) {
     debug.cache(`Cache entry for ${tileId} has maxBack=${cacheEntry.maxBack}, which is less than requested back=${requestedBackNum}`);
+    cacheMisses++;
     return null;
   }
   
@@ -394,18 +407,24 @@ function getTileCache(tileId, backValue) {
   // Simple and fast - just slice the array to the pre-calculated index
   const filteredData = cacheEntry.data.slice(0, backIndex + 1);
   
+  // Track cache hit
+  cacheHits++;
+  
   debug.cache(`Tile cache hit: ${tileId}, returning ${filteredData.length} records for back=${requestedBackNum} from maxBack=${cacheEntry.maxBack} tile (from cache index ${backIndex})`);
   return filteredData;
 }
 
 /**
- * Gets missing tiles from the provided list, taking into account the requested back values
- * Returns only the tiles that need to be fetched with their required back values
+ * Gets missing tiles from the provided list
+ * This is a compatibility wrapper for the new markAndIdentifyMissingTiles function
  * @param {string[]} tileIds - List of tile IDs (tileY:tileX format)
  * @param {Object} viewport - Viewport with back value
  * @returns {Array<{tileId: string, backValue: number}>} List of missing tiles with their required back values
  */
 function getMissingTiles(tileIds, viewport) {
+  // Create a temporary client ID for this request
+  const tempClientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  
   // Get back value and limit to maximum days
   let backNum = parseInt(viewport.back, 10);
   
@@ -415,37 +434,13 @@ function getMissingTiles(tileIds, viewport) {
     backNum = MAX_BACK_DAYS;
   }
   
-  const tilesToFetch = new Map(); // Map from tileId to required back value
+  // Use the new function to identify missing tiles
+  const missingTileIds = markAndIdentifyMissingTiles(tempClientId, tileIds);
   
-  // First, check if any tiles are missing or need updates
-  for (const tileId of tileIds) {
-    // Check if we have this tile in cache with sufficient back data
-    const entry = tileCache.get(tileId);
-    
-    // Entry needs to be fetched if:
-    // 1. It doesn't exist
-    // 2. It's expired
-    // 3. It doesn't have enough back data
-    if (!entry || Date.now() > entry.expires || entry.maxBack < backNum) {
-      // Calculate the back value we should fetch
-      let requiredBack = backNum;
-      
-      // If we have an existing entry, get the max back we need
-      if (entry && Date.now() <= entry.expires) {
-        debug.cache(`Tile ${tileId} exists but has maxBack=${entry.maxBack}, needs back=${backNum}`);
-      } else {
-        debug.cache(`Tile ${tileId} is missing or expired, needs back=${backNum}`);
-      }
-      
-      // Add to fetch list with the required back value
-      tilesToFetch.set(tileId, requiredBack);
-    }
-  }
-  
-  // Convert map to required format
-  const missingTiles = Array.from(tilesToFetch.entries()).map(([tileId, backValue]) => ({
+  // Convert to the expected format
+  const missingTiles = missingTileIds.map(tileId => ({
     tileId,
-    backValue
+    backValue: backNum
   }));
   
   debug.cache(`Found ${missingTiles.length} tiles to fetch out of ${tileIds.length} total`);
@@ -903,12 +898,197 @@ function getStats() {
       tileSizeKm: TILE_SIZE_KM,
       radiusBuffer: parseFloat(process.env.TILE_RADIUS_BUFFER || 1.05)
     },
+    metricsStats: {
+      cacheHits,
+      cacheMisses,
+      apiRequestCount,
+      cacheHitRatio: cacheHits + cacheMisses > 0 ? (cacheHits / (cacheHits + cacheMisses) * 100).toFixed(2) + '%' : '0%',
+      apiRequestsPerHour: process.uptime() > 0 ? (apiRequestCount / (process.uptime() / 3600)).toFixed(2) : 0
+    },
     systemInfo: {
       nodeVersion: process.version,
       timestamp: now,
       uptime: process.uptime()
     }
   };
+}
+
+/**
+ * Gets the exact boundary coordinates for a tile
+ * @param {string} tileId - The tile ID in format "tileY:tileX"
+ * @returns {Object} - Boundary coordinates {minLat, maxLat, minLng, maxLng}
+ */
+function getTileBoundaries(tileId) {
+  const [tileY, tileX] = tileId.split(':').map(Number);
+  
+  // Convert tile indices to coordinates
+  const latKmPerDegree = 111;
+  const tileSizeInLatDegrees = TILE_SIZE_KM / latKmPerDegree;
+  
+  const minLat = tileY * tileSizeInLatDegrees;
+  const maxLat = (tileY + 1) * tileSizeInLatDegrees;
+  
+  // Calculate longitude degrees (varies with latitude)
+  const centerLat = (minLat + maxLat) / 2;
+  const lngKmPerDegree = 111 * Math.cos(centerLat * Math.PI / 180);
+  const tileSizeInLngDegrees = lngKmPerDegree === 0 ? 
+    TILE_SIZE_KM / 1 : // Fallback for extreme latitudes
+    TILE_SIZE_KM / lngKmPerDegree;
+  
+  const minLng = tileX * tileSizeInLngDegrees;
+  const maxLng = (tileX + 1) * tileSizeInLngDegrees;
+  
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+/**
+ * Clips bird data to the exact boundaries of a tile
+ * Uses consistent boundary rules (include lower bound, exclude upper bound)
+ * @param {Array} data - Bird observation data to clip
+ * @param {Object} tileBounds - Tile boundaries
+ * @returns {Array} - Clipped data that falls within the tile
+ */
+function clipDataToTileBoundaries(data, tileBounds) {
+  const { minLat, maxLat, minLng, maxLng } = tileBounds;
+  
+  return data.filter(bird => {
+    // For points exactly on the boundary, we need consistent rules:
+    // - Include lower bounds (>=)
+    // - Exclude upper bounds (<)
+    // This ensures a point on the boundary belongs to exactly one tile
+    return (
+      bird.lat >= minLat && 
+      bird.lat < maxLat && 
+      bird.lng >= minLng && 
+      bird.lng < maxLng
+    );
+  });
+}
+
+/**
+ * Marks tiles as active for a client and identifies which tiles are missing from cache
+ * @param {string} clientId - Unique identifier for the client
+ * @param {string[]} tileIds - List of tile IDs to check
+ * @returns {string[]} List of tile IDs that need to be fetched
+ */
+function markAndIdentifyMissingTiles(clientId, tileIds) {
+  // Ensure client entry exists
+  if (!activeClientTiles.has(clientId)) {
+    activeClientTiles.set(clientId, { 
+      tiles: new Set(), 
+      lastActive: Date.now() 
+    });
+  } else {
+    // Update last active timestamp
+    activeClientTiles.get(clientId).lastActive = Date.now();
+  }
+  
+  const clientActiveTiles = activeClientTiles.get(clientId).tiles;
+  const missingTiles = [];
+  
+  // Process each tile in one pass
+  for (const tileId of tileIds) {
+    // Mark as active
+    clientActiveTiles.add(tileId);
+    
+    // Check if in cache (don't check expiration)
+    if (!tileCache.has(tileId)) {
+      cacheMisses++;
+      missingTiles.push(tileId);
+    } else {
+      cacheHits++;
+    }
+  }
+  
+  return missingTiles;
+}
+
+/**
+ * Releases tiles from active state for a client
+ * @param {string} clientId - Unique identifier for the client
+ * @param {string[]} tileIds - List of tile IDs to release
+ */
+function releaseTiles(clientId, tileIds) {
+  const clientData = activeClientTiles.get(clientId);
+  if (!clientData) return;
+  
+  const clientActiveTiles = clientData.tiles;
+  tileIds.forEach(id => clientActiveTiles.delete(id));
+  
+  // Update last active timestamp
+  clientData.lastActive = Date.now();
+}
+
+/**
+ * Checks if a tile is currently marked active by any client
+ * @param {string} tileId - Tile ID to check
+ * @returns {boolean} - True if any client has marked this tile as active
+ */
+function isTileActive(tileId) {
+  for (const clientData of activeClientTiles.values()) {
+    if (clientData.tiles.has(tileId)) return true;
+  }
+  return false;
+}
+
+/**
+ * Cleans up stale client entries
+ * @returns {number} - Number of clients removed
+ */
+function cleanupStaleClients() {
+  const now = Date.now();
+  let removed = 0;
+  
+  for (const [clientId, clientData] of activeClientTiles.entries()) {
+    if (now - clientData.lastActive > STALE_CLIENT_TIMEOUT) {
+      activeClientTiles.delete(clientId);
+      removed++;
+    }
+  }
+  
+  if (removed > 0) {
+    debug.info(`Cleaned up ${removed} stale client entries`);
+  }
+  
+  return removed;
+}
+
+/**
+ * Modified clearExpired to check for active tiles
+ * Only clears tiles that are expired AND not currently active
+ */
+function clearExpired() {
+  let removed = 0;
+  const now = Date.now();
+  
+  // First clean up stale clients
+  cleanupStaleClients();
+  
+  // Then clear expired tile cache entries that aren't active
+  for (const [key, entry] of tileCache.entries()) {
+    if (now > entry.expires && !isTileActive(key)) {
+      tileCache.delete(key);
+      removed++;
+    }
+  }
+  
+  // Log details about remaining entries
+  if (removed > 0 || Math.random() < 0.1) { // Only log details occasionally or when we removed entries
+    // Count statistics for the remaining entries
+    const backCounts = {};
+    
+    for (const entry of tileCache.values()) {
+      const back = entry.maxBack;
+      backCounts[back] = (backCounts[back] || 0) + 1;
+    }
+    
+    debug.info(`Cleared ${removed} expired cache entries (${tileCache.size} tile entries remaining)`);
+    debug.info(`Remaining entries by max back value: ${JSON.stringify(backCounts)}`);
+  } else {
+    debug.cache(`No expired entries found during cleanup check`);
+  }
+  
+  return removed;
 }
 
 // Start periodic cleanup
@@ -918,22 +1098,13 @@ const cleanupInterval = setInterval(clearExpired, CLEANUP_INTERVAL);
 cleanupInterval.unref();
 
 /**
- * Resets the superset search failed flag
- * This should be called at the start of each viewport fetch
+ * Increments the API request counter
+ * @param {number} count - Number of API requests to add
  */
-function resetSupersetSearch() {
-  hasSupersetSearchFailed = false;
-  debug.cache('Reset superset search failed flag');
-  
-  // Optionally clear coordinate index to force rebuild
-  // This keeps the index fresh and removes stale entries
-  if (tileCoordIndex.size > 100) {
-    debug.cache(`Clearing large coordinate index (${tileCoordIndex.size} entries)`);
-    tileCoordIndex.clear();
-  }
+function incrementApiRequestCount(count = 1) {
+  apiRequestCount += count;
+  debug.cache(`API request count increased by ${count} to ${apiRequestCount}`);
 }
-
-// tileCache is already defined above, so no need to redeclare it
 
 module.exports = {
   // Tile-based caching
@@ -944,15 +1115,26 @@ module.exports = {
   getTileCache,
   getMissingTiles,
   
-  // Cache internals (used for cross-tile deduplication)
+  // New improved cache functions
+  getTileBoundaries,
+  clipDataToTileBoundaries,
+  markAndIdentifyMissingTiles,
+  releaseTiles,
+  isTileActive,
+  
+  // Cache internals
   tileCache,
   
   // Back value configuration
   VALID_BACK_VALUES,
   MAX_BACK_DAYS,
   
+  // Cache metrics
+  incrementApiRequestCount,
+  
   // Cache management
   clearExpired,
+  cleanupStaleClients,
   clearAll,
   getStats
 };
