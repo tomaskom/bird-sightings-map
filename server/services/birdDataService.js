@@ -24,14 +24,22 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 const { debug } = require('../utils/debug');
 const { isValidViewport } = require('../utils/viewportUtils');
 const constants = require('../utils/serverConstants');
+const cacheManager = require('../utils/cacheManager');
 const { 
   getTilesForViewport,
   getTileCenter,
   getTileCache,
   setTileCache,
   getMissingTiles,
-  tileCache
-} = require('../utils/cacheManager');
+  tileCache,
+  MAX_BACK_DAYS,
+  incrementApiRequestCount,
+  getTileBoundaries,
+  clipDataToTileBoundaries
+} = cacheManager;
+
+// Make cacheManager accessible through constants for API request tracking
+constants.cacheManager = cacheManager;
 
 // API request settings from constants
 const MAX_PARALLEL_REQUESTS = constants.API.MAX_PARALLEL_REQUESTS;
@@ -72,23 +80,27 @@ async function getBirdDataForViewport(viewport) {
 async function getBirdDataFromTiles(viewport) {
   const startTime = Date.now();
   
-  // Reset the superset search flag at the start of each viewport fetch
-  // This is needed because the flag is module-level in cacheManager
-  const resetSupersetSearch = require('../utils/cacheManager').resetSupersetSearch;
-  if (resetSupersetSearch) resetSupersetSearch();
-  
-  // Get all tile IDs for this viewport
+  // Get all tile IDs for this viewport (now without back value in IDs)
   const tileIds = getTilesForViewport(viewport);
   debug.info(`Viewport requires ${tileIds.length} tiles`);
   
+  // Get requested back period and apply maximum limit
+  let backValue = parseInt(viewport.back, 10);
+  
+  // Enforce maximum back value to improve performance
+  if (backValue > MAX_BACK_DAYS) {
+    debug.warn(`Requested back=${backValue} exceeds maximum ${MAX_BACK_DAYS}, limiting to ${MAX_BACK_DAYS}`);
+    backValue = MAX_BACK_DAYS;
+  }
+  
   // Check which tiles we need to fetch (not in cache)
-  const missingTileIds = getMissingTiles(tileIds);
+  const missingTiles = getMissingTiles(tileIds, viewport);
   
   // If there are no missing tiles, we can skip fetching
-  if (missingTileIds.length === 0) {
-    debug.info('🎉 All tiles in cache - no API requests needed!');
+  if (missingTiles.length === 0) {
+    debug.info('🎉 All tiles in cache with sufficient back data - no API requests needed!');
   } else {
-    debug.info(`Need to fetch ${missingTileIds.length} missing tiles`);
+    debug.info(`Need to fetch ${missingTiles.length} missing tiles with back=${backValue}`);
     
     // Sort tiles - prioritize center tiles over edge tiles
     // This ensures the most important data is fetched first
@@ -98,25 +110,22 @@ async function getBirdDataFromTiles(viewport) {
     };
     
     // Calculate distance from center for each tile
-    const tilesWithDistance = missingTileIds.map(tileId => {
-      const center = getTileCenter(tileId);
+    const tilesWithDistance = missingTiles.map(tile => {
+      const center = getTileCenter(tile.tileId);
       const distance = Math.sqrt(
         Math.pow(center.lat - viewportCenter.lat, 2) + 
         Math.pow(center.lng - viewportCenter.lng, 2)
       );
-      return { tileId, distance };
+      return { ...tile, distance };
     });
     
     // Sort by distance from center
     tilesWithDistance.sort((a, b) => a.distance - b.distance);
     
-    // Extract sorted tile IDs
-    const sortedMissingTileIds = tilesWithDistance.map(tile => tile.tileId);
-    
     // Process in batches, starting with the center tiles
     const batches = [];
-    for (let i = 0; i < sortedMissingTileIds.length; i += MAX_PARALLEL_REQUESTS) {
-      batches.push(sortedMissingTileIds.slice(i, i + MAX_PARALLEL_REQUESTS));
+    for (let i = 0; i < tilesWithDistance.length; i += MAX_PARALLEL_REQUESTS) {
+      batches.push(tilesWithDistance.slice(i, i + MAX_PARALLEL_REQUESTS));
     }
     
     // If we have many batches, limit to the most essential ones
@@ -129,9 +138,12 @@ async function getBirdDataFromTiles(viewport) {
       const batch = initialBatches[i];
       debug.info(`Fetching batch ${i+1}/${initialBatches.length} (${batch.length} tiles)`);
       
-      // Process batch in parallel
-      await Promise.all(batch.map(fetchTileData));
+      // Process batch in parallel - pass both tile ID and back value to fetch function
+      await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
     }
+    
+    // Track API requests
+    incrementApiRequestCount(missingTiles.length);
     
     // If there are remaining batches, fetch them in the background
     if (batches.length > MAX_INITIAL_BATCHES) {
@@ -139,23 +151,29 @@ async function getBirdDataFromTiles(viewport) {
       
       // We don't await this promise - it runs in the background while we return data
       (async () => {
-        for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
-          const batch = batches[i];
-          debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
-          
-          // Process batch in parallel
-          await Promise.all(batch.map(fetchTileData));
+        try {
+          for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
+            const batch = batches[i];
+            debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
+            
+            // Process batch in parallel - pass both tile ID and back value to fetch function
+            await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
+          }
+          debug.info(`Background tile fetching complete - all ${missingTiles.length} tiles now in cache`);
+        } catch (error) {
+          debug.error(`Error in background tile fetching:`, error);
         }
-        debug.info(`Background tile fetching complete - all ${missingTileIds.length} tiles now in cache`);
       })();
     }
   }
   
   // Collect data from all tiles (now available in cache)
-  const tileDataPromises = tileIds.map(tileId => getTileCache(tileId));
+  // Pass back value to getTileCache for each tile
+  const tileDataPromises = tileIds.map(tileId => getTileCache(tileId, backValue));
   const tileData = await Promise.all(tileDataPromises);
   
   // Collect all bird observations from all tiles
+  // With precise tile clipping, each bird should only appear in one tile
   const allBirds = [];
   for (const tileObservations of tileData) {
     if (tileObservations && tileObservations.length > 0) {
@@ -163,20 +181,12 @@ async function getBirdDataFromTiles(viewport) {
     }
   }
   
-  // Now deduplicate at the viewport level and update the cache
+  // Simple deduplication for any edge cases
+  // This should be much more efficient now that birds are clipped to tile boundaries
   const startDedupeTime = Date.now();
-  
-  // First, create a record of which birds came from which tiles
-  const tileToRecords = new Map(); // Map tileId -> array of bird records
-  tileIds.forEach((tileId, index) => {
-    if (tileData[index] && tileData[index].length > 0) {
-      tileToRecords.set(tileId, tileData[index]);
-    }
-  });
   
   // Use a map to deduplicate based on a unique key
   const uniqueBirds = new Map();
-  const birdKeyToTiles = new Map(); // Tracks which tiles contain each duplicate bird
   
   for (const bird of allBirds) {
     const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
@@ -184,18 +194,6 @@ async function getBirdDataFromTiles(viewport) {
     // For duplicates, prefer the one marked as notable
     if (!uniqueBirds.has(key) || (bird.isNotable && !uniqueBirds.get(key).isNotable)) {
       uniqueBirds.set(key, bird);
-    }
-    
-    // Keep track of all tiles that contain this bird
-    if (!birdKeyToTiles.has(key)) {
-      birdKeyToTiles.set(key, new Set());
-    }
-    
-    // Find which tiles contain this bird
-    for (const [tileId, birds] of tileToRecords.entries()) {
-      if (birds.includes(bird)) {
-        birdKeyToTiles.get(key).add(tileId);
-      }
     }
   }
   
@@ -205,63 +203,10 @@ async function getBirdDataFromTiles(viewport) {
   const dupsRemoved = allBirds.length - finalData.length;
   debug.info(`Deduplicated ${allBirds.length} observations into ${finalData.length} unique records (${dupsRemoved} duplicates removed) in ${Date.now() - startDedupeTime}ms`);
   
-  // Update the cache entries to mark duplicates that can be removed
-  // Only do this optimization if we have significant duplicates
-  if (dupsRemoved > 10) {
-    const dedupeUpdateStartTime = Date.now();
-    
-    try {
-      // Update each tile in the cache with optimized data
-      for (const tileId of tileIds) {
-        const tileEntry = tileCache.get(tileId);
-        
-        if (tileEntry && !tileEntry.isDeduplicated && tileEntry.data.length > 0) {
-          // Count how many birds should be kept from this tile based on deduplication
-          let keepCount = 0;
-          let duplicatesRemoved = 0;
-          
-          const optimizedData = tileEntry.data.filter(bird => {
-            // Create the bird's unique key
-            const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-            
-            // Check if this bird appears in multiple tiles
-            const appearances = birdKeyToTiles.get(key);
-            
-            if (!appearances || appearances.size <= 1) {
-              // This bird only appears in one tile, always keep it
-              keepCount++;
-              return true;
-            }
-            
-            // For birds that appear in multiple tiles, only keep in the first tile
-            // (arbitrary but consistent selection)
-            const tilesWithBird = Array.from(appearances).sort();
-            const shouldKeep = tilesWithBird[0] === tileId;
-            
-            if (shouldKeep) {
-              keepCount++;
-              return true;
-            } else {
-              duplicatesRemoved++;
-              return false;
-            }
-          });
-          
-          // Only update if we found duplicates to remove
-          if (duplicatesRemoved > 0) {
-            debug.info(`Optimized tile ${tileId}: removed ${duplicatesRemoved} duplicate birds, keeping ${keepCount}`);
-            tileEntry.data = optimizedData;
-            tileEntry.isDeduplicated = true;
-            tileEntry.viewportDeduplicationSaved = duplicatesRemoved;
-          }
-        }
-      }
-      
-      debug.info(`Viewport deduplication cache update completed in ${Date.now() - dedupeUpdateStartTime}ms`);
-    } catch (error) {
-      // Log but don't fail if the optimization step has an error
-      debug.error('Error updating cache with deduplicated data:', error);
-    }
+  // With our new tile clipping approach, we shouldn't need complex cross-tile deduplication
+  // This deduplication is now only needed for edge cases (like birds exactly on boundaries)
+  if (dupsRemoved > 0) {
+    debug.info(`Note: Found ${dupsRemoved} duplicate birds across tiles - this should be rare with tile clipping`);
   }
   
   debug.info(`Completed tile-based retrieval in ${Date.now() - startTime}ms`);
@@ -271,15 +216,17 @@ async function getBirdDataFromTiles(viewport) {
 
 /**
  * Fetches data for a single tile and stores it in cache
- * @param {string} tileId - Tile ID
+ * @param {string} tileId - Tile ID (format: tileY:tileX)
+ * @param {number} backValue - Number of days to look back
  * @returns {Promise<Array>} Bird sighting data for the tile
  */
-async function fetchTileData(tileId) {
+async function fetchTileData(tileId, backValue) {
   const tileStartTime = Date.now();
   
   try {
-    // Get the tile center coordinates
+    // Get the tile center coordinates and add back value
     const tileCenter = getTileCenter(tileId);
+    tileCenter.back = backValue;
     
     // Using a fixed radius per tile based on the tile size
     // We add a buffer to ensure we get all data at the tile boundaries
@@ -298,10 +245,10 @@ async function fetchTileData(tileId) {
       lat: tileCenter.lat,
       lng: tileCenter.lng,
       dist: radius,
-      back: tileCenter.back
+      back: backValue
     };
     
-    debug.info(`Fetching tile ${tileId} with center (${tileCenter.lat.toFixed(4)}, ${tileCenter.lng.toFixed(4)}), radius ${radius.toFixed(2)}km, days back ${tileCenter.back}`);
+    debug.info(`Fetching tile ${tileId} with center (${tileCenter.lat.toFixed(4)}, ${tileCenter.lng.toFixed(4)}), radius ${radius.toFixed(2)}km, days back ${backValue}`);
     
     // Fetch both regular and notable birds
     const [recentBirds, notableBirds] = await Promise.all([
@@ -341,17 +288,30 @@ async function fetchTileData(tileId) {
     }));
     
     // Combine both lists - use a standard deduplication to avoid duplicates
-    const combinedData = deduplicateBirdsByLocation([...markedRecent, ...markedNotable]);
+    let combinedData = deduplicateBirdsByLocation([...markedRecent, ...markedNotable]);
     
-    // Cache the tile data
-    setTileCache(tileId, combinedData);
+    // Get exact tile boundaries
+    const tileBounds = getTileBoundaries(tileId);
     
-    debug.info(`Tile ${tileId} complete: ${combinedData.length} birds in ${Date.now() - tileStartTime}ms`);
+    // Clip data to exact tile boundaries to prevent overlap
+    const clippedData = clipDataToTileBoundaries(combinedData, tileBounds);
+    
+    if (clippedData.length < combinedData.length) {
+      debug.info(`Clipped ${combinedData.length - clippedData.length} bird observations outside tile boundaries`);
+      combinedData = clippedData;
+    }
+    
+    // Cache the clipped tile data - passing back value explicitly
+    setTileCache(tileId, combinedData, backValue);
+    
+    debug.info(`Tile ${tileId} complete: ${combinedData.length} birds with back=${backValue} in ${Date.now() - tileStartTime}ms`);
     return combinedData;
   } catch (error) {
-    debug.error(`Error fetching tile ${tileId}:`, error);
+    debug.error(`Error fetching tile ${tileId} with back=${backValue}:`, error);
+    
     // Store empty array in cache to avoid repeated failed requests
-    setTileCache(tileId, []);
+    setTileCache(tileId, [], backValue);
+    
     return [];
   }
 }
@@ -510,7 +470,7 @@ async function fetchBirdData(params) {
     });
     
     // Check for rate limiting indicators
-    if (requestDuration > 2000) {
+    if (requestDuration > 5000) {
       consecutiveSlowResponses++;
       debug.warn(`eBird API request took ${requestDuration}ms - may indicate throttling (${consecutiveSlowResponses} consecutive slow responses)`);
       

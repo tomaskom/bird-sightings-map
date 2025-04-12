@@ -43,7 +43,7 @@ const serverConstants = {
   // API request settings
   API: {
     // Maximum number of parallel API requests
-    MAX_PARALLEL_REQUESTS: parseInt(process.env.MAX_PARALLEL_REQUESTS, 10) || 8,
+    MAX_PARALLEL_REQUESTS: parseInt(process.env.MAX_PARALLEL_REQUESTS, 10) || 1,
     
     // Maximum initial batches to fetch immediately (remaining batches fetch in background)
     MAX_INITIAL_BATCHES: parseInt(process.env.MAX_INITIAL_BATCHES, 10) || 3
