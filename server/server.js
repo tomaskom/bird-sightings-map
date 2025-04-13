@@ -39,7 +39,9 @@ const {
   getTilesForViewport,
   getTileCenter,
   getTileId,
-  getTileCache
+  getTileCache,
+  tileCache,
+  activeClientTiles
 } = require('./utils/cacheManager');
 
 // Initialize Express app
@@ -69,7 +71,11 @@ app.use(cors({
 }));
 
 // Static file serving
-app.use(express.static(path.join(__dirname, '../client/dist')));
+// In development, the client will be served by its own dev server (e.g., Vite)
+// In production, we'll serve from the dist directory
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/dist')));
+}
 
 // Nominatim rate limiter (1 request per second)
 const geocodeLimiter = rateLimit({
@@ -467,6 +473,61 @@ app.get('/api/admin/cache-stats', adminAuth, (req, res) => {
   const stats = getStats();
   debug.info('Cache stats requested:', stats);
   res.json(stats);
+});
+
+/**
+ * TEMPORARY TEST ENDPOINT - Force expiration of tiles for testing
+ * @route GET /api/admin/force-expire-tiles
+ */
+app.get('/api/admin/force-expire-tiles', (req, res) => {
+  const { clientId } = req.query;
+  debug.info('Force expire tiles requested', { clientId });
+  
+  try {
+    // If a specific client ID is provided, expire only their tiles
+    if (clientId && activeClientTiles.has(clientId)) {
+      const clientTiles = Array.from(activeClientTiles.get(clientId).tiles);
+      const expiredTiles = [];
+      
+      // For each of the client's tiles, force expiration by setting expires to now - 1
+      for (const tileId of clientTiles) {
+        if (tileCache.has(tileId)) {
+          tileCache.get(tileId).expires = Date.now() - 1;
+          expiredTiles.push(tileId);
+        }
+      }
+      
+      // Run cleanup to remove expired tiles and client references
+      clearExpired();
+      
+      res.json({
+        success: true, 
+        message: `Forced expiration of ${expiredTiles.length} tiles for client ${clientId}`,
+        expiredTiles
+      });
+    } else {
+      // Expire all tiles in the cache by setting their expiration to now - 1
+      let count = 0;
+      for (const entry of tileCache.values()) {
+        entry.expires = Date.now() - 1;
+        count++;
+      }
+      
+      // Run cleanup to remove expired tiles and client references
+      clearExpired();
+      
+      res.json({
+        success: true,
+        message: `Forced expiration of ${count} tiles in the cache`
+      });
+    }
+  } catch (error) {
+    debug.error('Error forcing tile expiration:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to force tile expiration' 
+    });
+  }
 });
 
 /**
@@ -1156,11 +1217,14 @@ app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
   }
 });
 
-// Handle React routing
-app.get('*', (req, res) => {
-  debug.debug('Serving React app for path:', req.path);
-  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-});
+// Handle React routing in production mode only
+// In development, the client is served by Vite's dev server
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    debug.debug('Serving React app for path:', req.path);
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+  });
+}
 
 // Start server
 app.listen(port, () => {

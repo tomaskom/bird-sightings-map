@@ -1049,70 +1049,35 @@ function clipDataToTileBoundaries(data, tileBounds) {
 }
 
 /**
- * Marks tiles as active for a client and identifies which tiles are missing from cache
+ * Marks tiles as seen by a client
  * @param {string} clientId - Unique identifier for the client
- * @param {string[]} tileIds - List of tile IDs to check
- * @returns {string[]} List of tile IDs that need to be fetched
+ * @param {string[]} tileIds - List of tile IDs to mark as seen
  */
-function markAndIdentifyMissingTiles(clientId, tileIds) {
-  debug.info(`== DETAILED MARK MISSING TILES DEBUG ==`);
-  debug.info(`markAndIdentifyMissingTiles called for client ${clientId} with ${tileIds.length} tiles`);
+function markTilesAsSeen(clientId, tileIds) {
+  if (!tileIds || tileIds.length === 0) return;
+  
+  debug.info(`Marking ${tileIds.length} tiles as seen by client ${clientId}`);
   
   // Ensure client entry exists
   if (!activeClientTiles.has(clientId)) {
-    debug.info(`Creating new client entry for ${clientId} in markAndIdentifyMissingTiles`);
     activeClientTiles.set(clientId, { 
       tiles: new Set(), 
       lastActive: Date.now() 
     });
-  } else {
-    // Update last active timestamp
-    debug.info(`Updating timestamp for existing client ${clientId} in markAndIdentifyMissingTiles`);
-    activeClientTiles.get(clientId).lastActive = Date.now();
   }
   
   const clientActiveTiles = activeClientTiles.get(clientId).tiles;
-  debug.info(`Client has ${clientActiveTiles.size} active tiles before update`);
+  const beforeCount = clientActiveTiles.size;
   
-  const missingTiles = [];
-  
-  // Sample a few tiles for detailed logging
-  const sampleTiles = tileIds.slice(0, 3);
-  if (sampleTiles.length > 0) {
-    debug.info(`Sample tiles to add: ${sampleTiles.join(', ')}`);
-    
-    // Log if these tiles are already in client's set
-    for (const tile of sampleTiles) {
-      debug.info(`Sample tile ${tile} already in client set: ${clientActiveTiles.has(tile)}`);
-    }
-  }
-  
-  // Process each tile in one pass
+  // Mark all tiles as seen by this client
   for (const tileId of tileIds) {
-    // Mark as active
     clientActiveTiles.add(tileId);
-    
-    // Check if in cache (don't check expiration)
-    if (!tileCache.has(tileId)) {
-      cacheMisses++;
-      missingTiles.push(tileId);
-    } else {
-      cacheHits++;
-    }
   }
   
-  debug.info(`Client now has ${clientActiveTiles.size} active tiles after update`);
-  debug.info(`Identified ${missingTiles.length} missing tiles from cache`);
+  // Update last active timestamp
+  activeClientTiles.get(clientId).lastActive = Date.now();
   
-  // Verify that our sample tiles were added
-  if (sampleTiles.length > 0) {
-    for (const tile of sampleTiles) {
-      debug.info(`Sample tile ${tile} now in client set: ${clientActiveTiles.has(tile)}`);
-    }
-  }
-  
-  debug.info(`== END DETAILED MARK MISSING TILES DEBUG ==`);
-  return missingTiles;
+  debug.info(`Client ${clientId} tiles: ${beforeCount} → ${clientActiveTiles.size}`);
 }
 
 /**
@@ -1166,9 +1131,11 @@ function cleanupStaleClients() {
 }
 
 /**
- * Modified clearExpired to check for active tiles
- * Only clears tiles that are expired AND not currently active
- * Also updates client tile tracking when tiles are removed
+ * Clears expired tiles from cache and removes client tracking for those tiles
+ * The process is:
+ * 1. Identify all expired tiles
+ * 2. Remove client tracking for all expired tiles
+ * 3. Remove all expired tiles from cache
  */
 function clearExpired() {
   let removed = 0;
@@ -1177,35 +1144,46 @@ function clearExpired() {
   // First clean up stale clients
   cleanupStaleClients();
   
-  // Then clear expired tile cache entries that aren't active
+  // Identify all expired tiles
   const expiredTileIds = [];
   for (const [key, entry] of tileCache.entries()) {
-    if (now > entry.expires && !isTileActive(key)) {
-      tileCache.delete(key);
+    if (now > entry.expires) {
       expiredTileIds.push(key);
-      removed++;
     }
   }
   
-  // If we removed any tiles, update client tracking
-  if (expiredTileIds.length > 0) {
-    // Remove expired tile references from all clients
-    for (const [clientId, clientData] of activeClientTiles.entries()) {
-      const clientTiles = clientData.tiles;
-      let clientRemovedCount = 0;
-      
-      expiredTileIds.forEach(tileId => {
-        if (clientTiles.has(tileId)) {
-          clientTiles.delete(tileId);
-          clientRemovedCount++;
-        }
-      });
-      
-      if (clientRemovedCount > 0) {
-        debug.cache(`Removed ${clientRemovedCount} expired tile references from client ${clientId}`);
+  if (expiredTileIds.length === 0) {
+    debug.cache(`No expired entries found during cleanup check`);
+    return 0;
+  }
+  
+  // First, remove all client tracking for expired tiles
+  // This ensures clients will receive updated data if the tile is refreshed
+  let totalClientRemovals = 0;
+  for (const [clientId, clientData] of activeClientTiles.entries()) {
+    const clientTiles = clientData.tiles;
+    let clientRemovedCount = 0;
+    
+    expiredTileIds.forEach(tileId => {
+      if (clientTiles.has(tileId)) {
+        clientTiles.delete(tileId);
+        clientRemovedCount++;
       }
+    });
+    
+    if (clientRemovedCount > 0) {
+      totalClientRemovals += clientRemovedCount;
+      debug.cache(`Removed ${clientRemovedCount} expired tile references from client ${clientId}`);
     }
   }
+  
+  // Now remove all expired tiles from cache
+  for (const tileId of expiredTileIds) {
+    tileCache.delete(tileId);
+    removed++;
+  }
+  
+  debug.info(`Cleared ${removed} expired cache entries (${tileCache.size} remaining). Removed ${totalClientRemovals} client tile references.`);
   
   // Log details about remaining entries
   if (removed > 0 || Math.random() < 0.1) { // Only log details occasionally or when we removed entries
@@ -1253,7 +1231,7 @@ module.exports = {
   // New improved cache functions
   getTileBoundaries,
   clipDataToTileBoundaries,
-  markAndIdentifyMissingTiles,
+  markTilesAsSeen,
   releaseTiles,
   isTileActive,
   
@@ -1262,7 +1240,7 @@ module.exports = {
   
   // Cache internals
   tileCache,
-  activeClientTiles,  // Add the activeClientTiles export
+  activeClientTiles,
   
   // Back value configuration
   VALID_BACK_VALUES,

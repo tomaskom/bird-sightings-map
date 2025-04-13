@@ -28,7 +28,7 @@ import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Marker, ZoomControl, Popup } from 'react-leaflet';
 import { MAP_CONTROL_STYLES } from '../styles/controls';
 import { LAYOUT_STYLES } from '../styles/layout';
-import { getClientId } from '../utils/clientTileOptimization';
+import { getClientId, resetClientId } from '../utils/clientTileOptimization';
 import { COLORS } from '../styles/colors';
 import { debug } from '../utils/debug';
 import {
@@ -249,7 +249,12 @@ const BirdMap = () => {
   const [isMapAnimating, setIsMapAnimating] = useState(false);
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
-  const [clientId] = useState(() => getClientId());
+  const [clientId, setClientId] = useState(null);
+  
+  // Generate a new client ID after reset
+  useEffect(() => {
+    setClientId(getClientId());
+  }, []);
   const inputRef = useRef(null);
   const eventSourceRef = useRef(null);
   
@@ -409,13 +414,78 @@ const BirdMap = () => {
       mapRef.closePopup();
     }
     
-    setBack(newDays);
+    // Update the URL parameters
     if (mapRef) {
       updateUrlParams({
         back: newDays,
       });
-      setLastFetchParams(null); // Force refetch with new days
-      setLastFetchViewport(null); // Force refetch with new days
+    }
+    
+    // Filter with new days value directly, don't rely on state update
+    if (mapRef && allBirdData) {
+      startLoading();
+      try {
+        // Create a manual filter function that uses the new days value
+        const manualFilterByDays = (birds) => {
+          if (!birds || birds.length === 0) return [];
+          
+          const backDaysNum = parseInt(newDays, 10);
+          if (isNaN(backDaysNum) || backDaysNum <= 0) return birds;
+          
+          // Calculate cutoff date with new days value
+          const cutoffDate = new Date();
+          cutoffDate.setHours(0, 0, 0, 0);
+          cutoffDate.setDate(cutoffDate.getDate() - backDaysNum);
+          
+          debug.info(`Filtering to last ${backDaysNum} days (since ${cutoffDate.toISOString().split('T')[0]})`);
+          
+          // Filter birds
+          return birds.filter(bird => {
+            if (!bird.obsDt) return false;
+            const obsDate = new Date(bird.obsDt);
+            obsDate.setHours(0, 0, 0, 0);
+            return obsDate >= cutoffDate;
+          });
+        };
+        
+        // First filter by the new days value
+        const daysFiltered = manualFilterByDays(allBirdData);
+        
+        // Then apply species filtering
+        let speciesFiltered;
+        if (selectedSpecies === SPECIES_CODES.ALL) {
+          speciesFiltered = daysFiltered;
+        } else if (selectedSpecies === SPECIES_CODES.RARE) {
+          speciesFiltered = daysFiltered.filter(bird => bird.isNotable);
+        } else {
+          speciesFiltered = daysFiltered.filter(bird => bird.speciesCode === selectedSpecies);
+        }
+        
+        debug.info(`Filtered to ${speciesFiltered.length} birds with days=${newDays} and species=${selectedSpecies}`);
+        
+        // Process and display the filtered data
+        processAndDisplayFilteredData(speciesFiltered)
+          .catch(error => {
+            debug.error('Error processing filtered data:', error);
+          })
+          .finally(() => {
+            // Update state AFTER processing the data
+            setBack(newDays);
+            setLastFetchParams({
+              ...lastFetchParams,
+              back: newDays
+            });
+            endLoading();
+          });
+      } catch (error) {
+        debug.error('Error filtering by days:', error);
+        // Still update the state even on error
+        setBack(newDays);
+        endLoading();
+      }
+    } else {
+      // If we don't have data yet, just update the state
+      setBack(newDays);
     }
   };
   
@@ -429,8 +499,8 @@ const BirdMap = () => {
   const isViewportContained = (oldViewport, newViewport) => {
     if (!oldViewport || !newViewport) return false;
     
-    // If days changed, we need to refetch
-    if (oldViewport.back !== newViewport.back) return false;
+    // No need to check back days since we filter client-side now
+    // Just focus on the geographic viewport
     
     // Check if new viewport is fully contained within old viewport
     // Add a small buffer (0.001 degrees) to account for floating point precision
@@ -450,26 +520,73 @@ const BirdMap = () => {
   };
   
   /**
+   * Filters bird data based on how many days back to include
+   * @param {Array} birds - Bird data to filter
+   * @returns {Array} Filtered birds within the selected time range
+   */
+  const filterBirdDataByDays = useCallback((birds) => {
+    if (!birds || birds.length === 0) return [];
+    
+    const backDays = parseInt(back, 10);
+    if (isNaN(backDays) || backDays <= 0) return birds;
+    
+    // Calculate cutoff date based on selected "back" value
+    // Reset time to midnight for consistent day comparisons
+    const cutoffDate = new Date();
+    cutoffDate.setHours(0, 0, 0, 0);
+    cutoffDate.setDate(cutoffDate.getDate() - backDays);
+    
+    // Create a debug sample of birds with dates for verification
+    const sampleBirds = birds.slice(0, Math.min(5, birds.length));
+    const dateSamples = sampleBirds.map(bird => ({
+      obsDt: bird.obsDt,
+      parsed: new Date(bird.obsDt).toISOString().split('T')[0]
+    }));
+    
+    debug.info(`Filtering birds by date: showing last ${backDays} days (since ${cutoffDate.toISOString().split('T')[0]})`);
+    debug.debug('Date samples:', dateSamples);
+    
+    let beforeCount = birds.length;
+    
+    // Filter birds by observation date, handling the date comparison properly
+    const filtered = birds.filter(bird => {
+      if (!bird.obsDt) return false;
+      
+      // Parse the observation date and reset time to midnight for day-level comparison
+      const obsDate = new Date(bird.obsDt);
+      obsDate.setHours(0, 0, 0, 0);
+      
+      return obsDate >= cutoffDate;
+    });
+    
+    debug.info(`Date filtering: ${beforeCount} → ${filtered.length} birds (removed ${beforeCount - filtered.length})`);
+    
+    return filtered;
+  }, [back]);
+  
+  /**
    * Filters bird data based on selected species type
    * @param {Array} allBirds - Complete bird data from server
-   * @param {string} speciesCode - Selected species code or filter type
    * @returns {Array} Filtered bird data
    */
-  const filterBirdDataBySpecies = (allBirds) => {
+  const filterBirdDataBySpecies = useCallback((allBirds) => {
     if (!allBirds) return [];
     
-    // Handle special filter types
+    // First filter by days
+    const filteredByDays = filterBirdDataByDays(allBirds);
+    
+    // Then filter by species
     if (selectedSpecies === SPECIES_CODES.ALL) {
-      return allBirds;
+      return filteredByDays;
     }
     
     if (selectedSpecies === SPECIES_CODES.RARE) {
-      return allBirds.filter(bird => bird.isNotable);
+      return filteredByDays.filter(bird => bird.isNotable);
     }
     
     // Filter by specific species
-    return allBirds.filter(bird => bird.speciesCode === selectedSpecies);
-  };
+    return filteredByDays.filter(bird => bird.speciesCode === selectedSpecies);
+  }, [selectedSpecies, filterBirdDataByDays]);
 
   /**
    * Handles map movement events, updates center position and detects region changes
@@ -773,23 +890,33 @@ const BirdMap = () => {
   }, [clientId]);
 
   /**
-   * Adds new bird data to existing collection
-   * With server-side tile tracking, we don't need to deduplicate anymore
+   * Adds new bird data to existing collection, replacing data for tiles that are updated
    * @param {Array} existingData - Existing bird data
    * @param {Array} newData - New bird data to add
-   * @returns {Array} Combined bird data
+   * @param {Array} updatedTileIds - Tile IDs that were updated in this batch
+   * @returns {Array} Combined bird data with updates applied
    */
-  const addNewBirdData = useCallback((existingData, newData) => {
-    // If either array is empty, return the other
+  const addNewBirdData = useCallback((existingData, newData, updatedTileIds) => {
+    // If either array is empty, handle the simple cases
     if (!existingData || existingData.length === 0) return newData;
     if (!newData || newData.length === 0) return existingData;
     
-    debug.info(`Adding ${newData.length} new birds to existing collection of ${existingData.length} birds`);
+    debug.info(`Processing ${newData.length} birds for ${updatedTileIds?.length || 0} updated tiles`);
     
-    // Simply concatenate the arrays - server guarantees no duplicates
-    const result = [...existingData, ...newData];
+    // Create a set of tile IDs for efficient lookup
+    const tileSet = new Set(updatedTileIds);
     
-    debug.info(`Combined collection now has ${result.length} birds`);
+    // Remove existing birds that belong to updated tiles
+    const filteredExisting = existingData.filter(bird => {
+      // If the bird has a tileId and that tile was updated, remove it
+      return !(bird._tileId && tileSet.has(bird._tileId));
+    });
+    
+    // Combine filtered existing with new data
+    const result = [...filteredExisting, ...newData];
+    
+    debug.info(`Replaced data for ${updatedTileIds.length} tiles, collection now has ${result.length} birds`);
+    
     return result;
   }, []);
 
@@ -883,8 +1010,17 @@ const BirdMap = () => {
       const newData = await response.json();
       debug.info(`Received ${newData.length} new birds from server`);
       
-      // Add new data to existing collection
-      data = addNewBirdData(allBirdData || [], newData);
+      // Extract unique tile IDs from the new data for replacement
+      const updatedTileIds = Array.from(new Set(
+        newData
+          .filter(bird => bird._tileId) // Only include birds with tile IDs
+          .map(bird => bird._tileId)    // Extract the tile IDs
+      ));
+      
+      debug.info(`Received data for ${updatedTileIds.length} unique tiles`);
+      
+      // Add new data to existing collection, replacing any data for updated tiles
+      data = addNewBirdData(allBirdData || [], newData, updatedTileIds);
       
       debug.info(`Bird collection now contains ${data.length} total birds`); 
       
@@ -1068,8 +1204,12 @@ const BirdMap = () => {
     }, 100);
   }, [mapRef, lastFetchViewport, fetchBirdData, clientId, back, setLastFetchViewport, filterBirdDataBySpecies, processAndDisplayFilteredData, buildViewportApiUrl]);
   
-  // Load URL parameters on component mount
+  // Load URL parameters on component mount and reset client tracking
   useEffect(() => {
+    // Reset client ID on page reload to force a fresh state
+    resetClientId();
+    debug.info('Reset client ID on page load');
+    
     const loadUrlParams = async () => {
       try {
         debug.debug('Loading URL parameters');

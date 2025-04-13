@@ -31,7 +31,7 @@ const {
   getTileCache,
   setTileCache,
   getMissingTiles,
-  markAndIdentifyMissingTiles,
+  markTilesAsSeen,
   releaseTiles,
   getClientMissingTiles,
   tileCache,
@@ -90,14 +90,10 @@ async function getBirdDataFromTiles(viewport) {
     const tileIds = getTilesForViewport(viewport);
     debug.info(`Viewport requires ${tileIds.length} tiles`);
     
-    // Get requested back period and apply maximum limit
-    let backValue = parseInt(viewport.back, 10);
-    
-    // Enforce maximum back value to improve performance
-    if (backValue > MAX_BACK_DAYS) {
-      debug.warn(`Requested back=${backValue} exceeds maximum ${MAX_BACK_DAYS}, limiting to ${MAX_BACK_DAYS}`);
-      backValue = MAX_BACK_DAYS;
-    }
+    // Always use maximum back value (14 days)
+    // Client will filter for fewer days if needed
+    const backValue = MAX_BACK_DAYS;
+    debug.info(`Using maximum back value (${MAX_BACK_DAYS}) for all requests, client will filter as needed`);
     
     // Check which tiles we need to fetch (not in cache)
     const missingTiles = getMissingTiles(tileIds, viewport);
@@ -182,10 +178,19 @@ async function getBirdDataFromTiles(viewport) {
   const tileData = await Promise.all(tileDataPromises);
   
   // Collect all bird observations from the filtered tiles
+  // Add tile ID to each observation for client-side tracking
   const allBirds = [];
-  for (const tileObservations of tileData) {
+  for (let i = 0; i < tileData.length; i++) {
+    const tileId = clientTilesToReturn[i];
+    const tileObservations = tileData[i];
+    
     if (tileObservations && tileObservations.length > 0) {
-      allBirds.push(...tileObservations);
+      // Add tile ID to each observation
+      const birdsWithTileId = tileObservations.map(bird => ({
+        ...bird,
+        _tileId: tileId // Add private field for tile tracking
+      }));
+      allBirds.push(...birdsWithTileId);
     }
   }
   
@@ -212,22 +217,8 @@ async function getBirdDataFromTiles(viewport) {
         debug.info(`BEFORE: Client ${clientId} has no entry in activeClientTiles`);
       }
       
-      // IMPORTANT FIX: We're manually adding the tiles to the client's set
-      // instead of using markAndIdentifyMissingTiles which also tries to identify missing tiles
-      // This ensures we're ONLY marking tiles as seen without any other side effects
-      for (const tileId of clientTilesToReturn) {
-        if (!activeClientTiles.has(clientId)) {
-          activeClientTiles.set(clientId, { 
-            tiles: new Set(), 
-            lastActive: Date.now() 
-          });
-        }
-        
-        // Add the tile to the client's set of seen tiles
-        activeClientTiles.get(clientId).tiles.add(tileId);
-        // Update the client's last active timestamp
-        activeClientTiles.get(clientId).lastActive = Date.now();
-      }
+      // Mark tiles as seen by this client using our dedicated function
+      markTilesAsSeen(clientId, clientTilesToReturn);
       
       // Log the active client tiles after marking
       if (activeClientTiles.has(clientId)) {
