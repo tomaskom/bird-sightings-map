@@ -31,7 +31,11 @@ const {
   getTileCache,
   setTileCache,
   getMissingTiles,
+  markTilesAsSeen,
+  releaseTiles,
+  getClientMissingTiles,
   tileCache,
+  activeClientTiles,
   MAX_BACK_DAYS,
   incrementApiRequestCount,
   getTileBoundaries,
@@ -74,33 +78,31 @@ async function getBirdDataForViewport(viewport) {
 
 /**
  * Gets bird data using tile-based caching
- * @param {Object} viewport - Viewport parameters
+ * @param {Object} viewport - Viewport parameters with optional clientId
  * @returns {Promise<Array>} Combined bird sighting data
  */
 async function getBirdDataFromTiles(viewport) {
   const startTime = Date.now();
+  const clientId = viewport.clientId;
   
-  // Get all tile IDs for this viewport (now without back value in IDs)
-  const tileIds = getTilesForViewport(viewport);
-  debug.info(`Viewport requires ${tileIds.length} tiles`);
-  
-  // Get requested back period and apply maximum limit
-  let backValue = parseInt(viewport.back, 10);
-  
-  // Enforce maximum back value to improve performance
-  if (backValue > MAX_BACK_DAYS) {
-    debug.warn(`Requested back=${backValue} exceeds maximum ${MAX_BACK_DAYS}, limiting to ${MAX_BACK_DAYS}`);
-    backValue = MAX_BACK_DAYS;
-  }
-  
-  // Check which tiles we need to fetch (not in cache)
-  const missingTiles = getMissingTiles(tileIds, viewport);
+  try {
+    // Get all tile IDs for this viewport (now without back value in IDs)
+    const tileIds = getTilesForViewport(viewport);
+    debug.info(`Viewport requires ${tileIds.length} tiles`);
+    
+    // Always use maximum back value (14 days)
+    // Client will filter for fewer days if needed
+    const backValue = MAX_BACK_DAYS;
+    debug.info(`Using maximum back value (${MAX_BACK_DAYS}) for all requests, client will filter as needed`);
+    
+    // Check which tiles we need to fetch (not in cache)
+    const missingTiles = getMissingTiles(tileIds, viewport);
   
   // If there are no missing tiles, we can skip fetching
   if (missingTiles.length === 0) {
-    debug.info('🎉 All tiles in cache with sufficient back data - no API requests needed!');
+    debug.info('🎉 All tiles in cache - no API requests needed!');
   } else {
-    debug.info(`Need to fetch ${missingTiles.length} missing tiles with back=${backValue}`);
+    debug.info(`Need to fetch ${missingTiles.length} missing tiles`);
     
     // Sort tiles - prioritize center tiles over edge tiles
     // This ensures the most important data is fetched first
@@ -149,17 +151,46 @@ async function getBirdDataFromTiles(viewport) {
     debug.info(`All ${batches.length} batches fetched synchronously - no background fetching needed`);
   }
   
-  // Collect data from all tiles (now available in cache)
-  // Pass back value to getTileCache for each tile
-  const tileDataPromises = tileIds.map(tileId => getTileCache(tileId, backValue));
+  // Get the tiles that this client doesn't already have
+  let clientTilesToReturn = tileIds;
+  
+  if (clientId && activeClientTiles) {
+    try {
+      clientTilesToReturn = getClientMissingTiles(clientId, tileIds);
+      debug.info(`Client ${clientId} needs ${clientTilesToReturn.length}/${tileIds.length} tiles`);
+    } catch (error) {
+      debug.error('Error getting client missing tiles:', error);
+      // Fall back to returning all tiles if there's an error
+      clientTilesToReturn = tileIds;
+      debug.info('Falling back to returning all tiles due to error');
+    }
+  } else {
+    debug.info('No client ID provided or client tracking not available, returning all tiles in viewport');
+  }
+  
+  // Collect data only for tiles the client needs
+  // IMPORTANT: Don't mark tiles as seen yet - only do that after successfully sending to client
+  const tileDataPromises = clientTilesToReturn.map(tileId => {
+    // Get the tile data from cache
+    return getTileCache(tileId, backValue);
+  });
+  
   const tileData = await Promise.all(tileDataPromises);
   
-  // Collect all bird observations from all tiles
-  // With precise tile clipping, each bird should only appear in one tile
+  // Collect all bird observations from the filtered tiles
+  // Add tile ID to each observation for client-side tracking
   const allBirds = [];
-  for (const tileObservations of tileData) {
+  for (let i = 0; i < tileData.length; i++) {
+    const tileId = clientTilesToReturn[i];
+    const tileObservations = tileData[i];
+    
     if (tileObservations && tileObservations.length > 0) {
-      allBirds.push(...tileObservations);
+      // Add tile ID to each observation
+      const birdsWithTileId = tileObservations.map(bird => ({
+        ...bird,
+        _tileId: tileId // Add private field for tile tracking
+      }));
+      allBirds.push(...birdsWithTileId);
     }
   }
   
@@ -168,11 +199,56 @@ async function getBirdDataFromTiles(viewport) {
   const startDedupeTime = Date.now();
   const finalData = allBirds;
   
-  debug.info(`Skipping deduplication for ${finalData.length} observations from cache (already deduplicated) in ${Date.now() - startDedupeTime}ms`);
-  
+  debug.info(`Skipping deduplication for ${finalData.length} observations from ${clientTilesToReturn.length} tiles in ${Date.now() - startDedupeTime}ms`);
   debug.info(`Completed tile-based retrieval in ${Date.now() - startTime}ms`);
   
+  // NOW mark the tiles as seen by this client - AFTER we've collected the data
+  // This ensures we don't mark tiles as seen until we're ready to return them to the client
+  if (clientId && activeClientTiles && clientTilesToReturn.length > 0) {
+    try {
+      debug.info(`== DETAILED MARK TILES DEBUG ==`);
+      debug.info(`Preparing to mark ${clientTilesToReturn.length} tiles as seen by client ${clientId}`);
+      
+      // Log the active client tiles before marking
+      if (activeClientTiles.has(clientId)) {
+        const beforeCount = activeClientTiles.get(clientId).tiles.size;
+        debug.info(`BEFORE: Client ${clientId} has ${beforeCount} active tiles`);
+      } else {
+        debug.info(`BEFORE: Client ${clientId} has no entry in activeClientTiles`);
+      }
+      
+      // Mark tiles as seen by this client using our dedicated function
+      markTilesAsSeen(clientId, clientTilesToReturn);
+      
+      // Log the active client tiles after marking
+      if (activeClientTiles.has(clientId)) {
+        const afterCount = activeClientTiles.get(clientId).tiles.size;
+        debug.info(`AFTER: Client ${clientId} has ${afterCount} active tiles`);
+        
+        // Check if our sample tile was added
+        if (clientTilesToReturn.length > 0) {
+          const sampleTile = clientTilesToReturn[0];
+          const hasTile = activeClientTiles.get(clientId).tiles.has(sampleTile);
+          debug.info(`Sample tile ${sampleTile} in client tiles: ${hasTile}`);
+        }
+      } else {
+        debug.info(`AFTER: Client ${clientId} still has no entry in activeClientTiles`);
+      }
+      
+      debug.info(`== END DETAILED MARK TILES DEBUG ==`);
+    } catch (error) {
+      debug.error('Error marking client tiles as seen:', error);
+    }
+  }
+  
+  debug.info(`Returning ${finalData.length} bird observations to client for ${clientTilesToReturn.length} tiles`);
   return finalData;
+  
+  } catch (error) {
+    debug.error('Error in getBirdDataFromTiles:', error);
+    // Return an empty array as fallback
+    return [];
+  }
 }
 
 /**

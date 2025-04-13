@@ -402,12 +402,13 @@ export const fetchRegionSpecies = async (regionCode) => {
  * @returns {string} Formatted API URL with query parameters
  */
 export const buildViewportApiUrl = (viewport) => {
+  // Server always uses MAX_BACK_DAYS (14) regardless of what we send
+  // So we don't need to send "back" parameter at all
   const searchParams = new URLSearchParams({
     minLat: viewport.minLat.toString(),
     maxLat: viewport.maxLat.toString(),
     minLng: viewport.minLng.toString(),
-    maxLng: viewport.maxLng.toString(),
-    back: viewport.back.toString()
+    maxLng: viewport.maxLng.toString()
   });
   
   // Add clientId parameter if provided

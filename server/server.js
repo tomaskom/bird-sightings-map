@@ -33,7 +33,6 @@ const { debug } = require('./utils/debug');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const { getBirdDataForViewport } = require('./services/birdDataService');
 const { isValidViewport } = require('./utils/viewportUtils');
-const constants = require('./utils/serverConstants');
 const { 
   getStats, 
   clearExpired,
@@ -41,7 +40,8 @@ const {
   getTileCenter,
   getTileId,
   getTileCache,
-  getMissingTiles
+  tileCache,
+  activeClientTiles
 } = require('./utils/cacheManager');
 
 // Initialize Express app
@@ -71,7 +71,11 @@ app.use(cors({
 }));
 
 // Static file serving
-app.use(express.static(path.join(__dirname, '../client/dist')));
+// In development, the client will be served by its own dev server (e.g., Vite)
+// In production, we'll serve from the dist directory
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/dist')));
+}
 
 // Nominatim rate limiter (1 request per second)
 const geocodeLimiter = rateLimit({
@@ -203,7 +207,6 @@ const fetchReverseGeocoding = async (lat, lon) => {
   }
 };
 
-// Legacy fetchBirdData function removed - now using the implementation in birdDataService.js
 
 /**
  * Fetches region species list from eBird API
@@ -334,43 +337,6 @@ const fetchRegionInfo = async (regionCode) => {
 };
 
 
-// Create a map to store SSE clients
-const tileUpdateClients = new Map(); // clientId -> response object
-
-/**
- * Server-Sent Events endpoint for tile updates
- * Allows clients to subscribe to notifications when background-loaded tiles are ready
- * @route GET /api/birds/tile-updates
- */
-app.get('/api/birds/tile-updates', (req, res) => {
-  const clientId = req.query.clientId;
-  
-  if (!clientId) {
-    return res.status(400).json({ error: 'Client ID is required' });
-  }
-  
-  debug.info(`Client ${clientId} connected to tile updates SSE`);
-  
-  // Configure SSE response headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
-  
-  // Send initial connection message
-  res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Connected to tile updates' })}\n\n`);
-  
-  // Store client connection
-  tileUpdateClients.set(clientId, res);
-  
-  // Remove client when connection closes
-  req.on('close', () => {
-    debug.info(`Client ${clientId} disconnected from tile updates SSE`);
-    tileUpdateClients.delete(clientId);
-  });
-});
-
 // API Routes
 
 app.get('/api/region-species/:regionCode', async (req, res) => {
@@ -482,7 +448,7 @@ app.get('/api/birds/viewport', async (req, res) => {
       minLng,
       maxLng,
       back,
-      clientId // Include clientId for SSE notifications
+      clientId // Include clientId in the viewport object
     };
     
     // Validate viewport parameters
@@ -492,9 +458,6 @@ app.get('/api/birds/viewport', async (req, res) => {
     
     // Get bird data for this viewport (both regular and rare)
     const data = await getBirdDataForViewport(viewport);
-    
-    // For backward compatibility, directly send the bird data array
-    // This keeps the response format the same as before
     res.json(data);
   } catch (error) {
     debug.error('Error handling viewport bird request:', error.message);
@@ -510,6 +473,92 @@ app.get('/api/admin/cache-stats', adminAuth, (req, res) => {
   const stats = getStats();
   debug.info('Cache stats requested:', stats);
   res.json(stats);
+});
+
+/**
+ * TEMPORARY TEST ENDPOINT - Force expiration of tiles for testing
+ * @route GET /api/admin/force-expire-tiles
+ */
+app.get('/api/admin/force-expire-tiles', (req, res) => {
+  const { clientId } = req.query;
+  debug.info('Force expire tiles requested', { clientId });
+  
+  try {
+    // If a specific client ID is provided, expire only their tiles
+    if (clientId && activeClientTiles.has(clientId)) {
+      const clientTiles = Array.from(activeClientTiles.get(clientId).tiles);
+      const expiredTiles = [];
+      
+      // For each of the client's tiles, force expiration by setting expires to now - 1
+      for (const tileId of clientTiles) {
+        if (tileCache.has(tileId)) {
+          tileCache.get(tileId).expires = Date.now() - 1;
+          expiredTiles.push(tileId);
+        }
+      }
+      
+      // Run cleanup to remove expired tiles and client references
+      clearExpired();
+      
+      res.json({
+        success: true, 
+        message: `Forced expiration of ${expiredTiles.length} tiles for client ${clientId}`,
+        expiredTiles
+      });
+    } else {
+      // Expire all tiles in the cache by setting their expiration to now - 1
+      let count = 0;
+      for (const entry of tileCache.values()) {
+        entry.expires = Date.now() - 1;
+        count++;
+      }
+      
+      // Run cleanup to remove expired tiles and client references
+      clearExpired();
+      
+      res.json({
+        success: true,
+        message: `Forced expiration of ${count} tiles in the cache`
+      });
+    }
+  } catch (error) {
+    debug.error('Error forcing tile expiration:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to force tile expiration' 
+    });
+  }
+});
+
+/**
+ * Debug endpoint for client tile tracking
+ * @route GET /api/admin/client-tracking
+ */
+app.get('/api/admin/client-tracking', adminAuth, (req, res) => {
+  debug.info('Client tracking info requested');
+  
+  // Build a client tracking report
+  const report = {
+    clients: []
+  };
+  
+  try {
+    for (const [clientId, clientData] of activeClientTiles.entries()) {
+      report.clients.push({
+        clientId: clientId,
+        lastActive: new Date(clientData.lastActive).toISOString(),
+        tileCount: clientData.tiles.size,
+        // Limit to first 10 tiles for brevity
+        sampleTiles: Array.from(clientData.tiles).slice(0, 10)
+      });
+    }
+    
+    debug.info(`Found ${report.clients.length} active clients`);
+    res.json(report);
+  } catch (error) {
+    debug.error('Error generating client tracking report:', error);
+    res.status(500).json({ error: 'Failed to generate report' });
+  }
 });
 
 /**
@@ -1103,6 +1152,7 @@ app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
   };
   
   try {
+    const startTime = Date.now();
     
     const tileIds = getTilesForViewport(viewport);
     debug.tile(`Generated ${tileIds.length} tiles for viewport`);
@@ -1167,55 +1217,14 @@ app.get('/api/admin/tile-debug', adminAuth, (req, res) => {
   }
 });
 
-// Handle React routing
-app.get('*', (req, res) => {
-  debug.debug('Serving React app for path:', req.path);
-  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-});
-
-/**
- * Notifies connected clients that new tile data is available
- * @param {string} clientId - Client ID to notify (or null for all clients)
- * @param {Object} tileData - Data about the tiles that are now available
- */
-function notifyTileUpdate(clientId, tileData) {
-  // If no client ID, send to all connected clients
-  if (!clientId) {
-    debug.info(`Broadcasting tile update to ${tileUpdateClients.size} clients`);
-    
-    for (const [id, client] of tileUpdateClients.entries()) {
-      try {
-        client.write(`data: ${JSON.stringify({
-          type: 'tileUpdate',
-          data: tileData
-        })}\n\n`);
-      } catch (error) {
-        debug.error(`Error notifying client ${id}:`, error);
-        // Remove failed clients
-        tileUpdateClients.delete(id);
-      }
-    }
-    return;
-  }
-  
-  // Send to specific client
-  const client = tileUpdateClients.get(clientId);
-  if (client) {
-    try {
-      debug.info(`Notifying client ${clientId} of tile update`);
-      client.write(`data: ${JSON.stringify({
-        type: 'tileUpdate',
-        data: tileData
-      })}\n\n`);
-    } catch (error) {
-      debug.error(`Error notifying client ${clientId}:`, error);
-      tileUpdateClients.delete(clientId);
-    }
-  }
+// Handle React routing in production mode only
+// In development, the client is served by Vite's dev server
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    debug.debug('Serving React app for path:', req.path);
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+  });
 }
-
-// Expose the notification function to other modules
-constants.notifyTileUpdate = notifyTileUpdate;
 
 // Start server
 app.listen(port, () => {

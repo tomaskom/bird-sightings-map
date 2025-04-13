@@ -60,7 +60,7 @@ export const DEFAULT_MAP_PARAMS = {
     lng: -122.0308,
     species: SPECIES_CODES.ALL,
     back: "7",
-    zoom: 12
+    zoom: 13
 };
 
 /**
