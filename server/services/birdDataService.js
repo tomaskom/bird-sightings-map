@@ -128,10 +128,9 @@ async function getBirdDataFromTiles(viewport) {
       batches.push(tilesWithDistance.slice(i, i + MAX_PARALLEL_REQUESTS));
     }
     
-    // If we have many batches, limit to the most essential ones
-    // for the initial view (we'll fetch the rest later if needed)
-    const initialBatches = batches.length > MAX_INITIAL_BATCHES ? 
-      batches.slice(0, MAX_INITIAL_BATCHES) : batches;
+    // TESTING: Fetch all batches synchronously to test performance impact
+    // By using all batches as initial batches, we effectively disable background loading
+    const initialBatches = batches;
     
     // Fetch initial batches
     for (let i = 0; i < initialBatches.length; i++) {
@@ -145,73 +144,9 @@ async function getBirdDataFromTiles(viewport) {
     // Track API requests
     incrementApiRequestCount(missingTiles.length);
     
-    // If there are remaining batches, fetch them in the background
-    if (batches.length > MAX_INITIAL_BATCHES) {
-      debug.info(`Fetching ${batches.length - MAX_INITIAL_BATCHES} remaining batches in background`);
-      
-      // Extract client ID from viewport if available
-      const clientId = viewport.clientId;
-      
-      // Collect the tile IDs for notification
-      const backgroundTileIds = [];
-      for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
-        backgroundTileIds.push(...batches[i].map(tile => tile.tileId));
-      }
-      
-      // We don't await this promise - it runs in the background while we return data
-      (async () => {
-        try {
-          // Keep track of completed batches for notification
-          const completedTileIds = [];
-          
-          for (let i = MAX_INITIAL_BATCHES; i < batches.length; i++) {
-            const batch = batches[i];
-            debug.info(`Background fetching batch ${i+1}/${batches.length} (${batch.length} tiles)`);
-            
-            // Process batch in parallel - pass both tile ID and back value to fetch function
-            await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
-            
-            // Add batch tile IDs to completed list
-            const batchTileIds = batch.map(tile => tile.tileId);
-            completedTileIds.push(...batchTileIds);
-            
-            // Notify after each batch completes
-            if (constants.notifyTileUpdate && clientId) {
-              constants.notifyTileUpdate(clientId, {
-                completedTileIds: batchTileIds,
-                batchNumber: i + 1,
-                totalBatches: batches.length,
-                remainingTileIds: backgroundTileIds.filter(id => !completedTileIds.includes(id)),
-                viewport: {
-                  minLat: viewport.minLat,
-                  maxLat: viewport.maxLat,
-                  minLng: viewport.minLng,
-                  maxLng: viewport.maxLng
-                }
-              });
-            }
-          }
-          
-          debug.info(`Background tile fetching complete - all ${missingTiles.length} tiles now in cache`);
-          
-          // Final notification when all background fetching is complete
-          if (constants.notifyTileUpdate && clientId) {
-            constants.notifyTileUpdate(clientId, {
-              completedTileIds: backgroundTileIds,
-              isComplete: true,
-              viewport: {
-                minLat: viewport.minLat,
-                maxLat: viewport.maxLat,
-                minLng: viewport.minLng,
-                maxLng: viewport.maxLng
-              }
-            });
-          }
-        } catch (error) {
-          debug.error(`Error in background tile fetching:`, error);
-        }
-      })();
-    }
+    // TESTING: We're now loading all tiles synchronously, so there are no remaining batches
+    // This block of background fetching code is disabled for performance testing
+    debug.info(`All ${batches.length} batches fetched synchronously - no background fetching needed`);
   }
   
   // Collect data from all tiles (now available in cache)
