@@ -46,7 +46,8 @@ const serverConstants = {
     MAX_PARALLEL_REQUESTS: parseInt(process.env.MAX_PARALLEL_REQUESTS, 10) || 1,
     
     // Maximum initial batches to fetch immediately (remaining batches fetch in background)
-    MAX_INITIAL_BATCHES: parseInt(process.env.MAX_INITIAL_BATCHES, 10) || 3
+    // Set to a very high number to force fetching all tiles synchronously (no background loading)
+    MAX_INITIAL_BATCHES: parseInt(process.env.MAX_INITIAL_BATCHES, 10) || 1000
   },
 
   // Geographic constraints

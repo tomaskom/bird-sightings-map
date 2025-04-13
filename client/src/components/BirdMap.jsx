@@ -773,10 +773,11 @@ const BirdMap = () => {
 
   /**
    * Merges existing bird data with new data from viewport segments
-   * Performs client-side deduplication to ensure we don't have duplicate birds
+   * Performs client-side deduplication to ensure we don't accumulate duplicate birds
+   * as we continue to fetch and merge data during viewport navigation.
    * @param {Array} existingData - Existing bird data
    * @param {Array} newData - New bird data to merge
-   * @returns {Array} Combined bird data
+   * @returns {Array} Combined and deduplicated bird data
    */
   const mergeBirdData = useCallback((existingData, newData) => {
     // If either array is empty, return the other
@@ -788,13 +789,13 @@ const BirdMap = () => {
     // Create a Map to deduplicate by a unique key
     const uniqueBirds = new Map();
     
-    // Process existing data first (to be overwritten by newer data if duplicates exist)
+    // Process existing data first
     existingData.forEach(bird => {
       const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
       uniqueBirds.set(key, bird);
     });
     
-    // Add new data, overwriting any duplicates
+    // Add new data, potentially overwriting duplicates with newer data
     newData.forEach(bird => {
       const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
       uniqueBirds.set(key, bird);
@@ -802,7 +803,11 @@ const BirdMap = () => {
     
     // Convert back to array
     const result = Array.from(uniqueBirds.values());
-    debug.info(`Merged and deduplicated: ${result.length} birds (removed ${existingData.length + newData.length - result.length} duplicates)`);
+    const duplicatesRemoved = existingData.length + newData.length - result.length;
+    
+    if (duplicatesRemoved > 0) {
+      debug.info(`Removed ${duplicatesRemoved} duplicate birds during merge`);
+    }
     
     return result;
   }, []);
