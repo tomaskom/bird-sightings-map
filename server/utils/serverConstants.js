@@ -43,7 +43,7 @@ const serverConstants = {
   // API request settings
   API: {
     // Maximum number of parallel API requests
-    MAX_PARALLEL_REQUESTS: parseInt(process.env.MAX_PARALLEL_REQUESTS, 10) || 1,
+    MAX_PARALLEL_REQUESTS: parseInt(process.env.MAX_PARALLEL_REQUESTS, 10) || 8,
     
     // Maximum initial batches to fetch immediately (remaining batches fetch in background)
     // Set to a very high number to force fetching all tiles synchronously (no background loading)

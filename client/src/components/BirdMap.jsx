@@ -28,6 +28,7 @@ import React, { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, useMapEvents, Marker, ZoomControl, Popup } from 'react-leaflet';
 import { MAP_CONTROL_STYLES } from '../styles/controls';
 import { LAYOUT_STYLES } from '../styles/layout';
+import { getClientId } from '../utils/clientTileOptimization';
 import { COLORS } from '../styles/colors';
 import { debug } from '../utils/debug';
 import {
@@ -248,7 +249,7 @@ const BirdMap = () => {
   const [isMapAnimating, setIsMapAnimating] = useState(false);
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
-  const [clientId] = useState(() => `client_${Date.now()}_${Math.floor(Math.random() * 1000000)}`);
+  const [clientId] = useState(() => getClientId());
   const inputRef = useRef(null);
   const eventSourceRef = useRef(null);
   
@@ -772,43 +773,23 @@ const BirdMap = () => {
   }, [clientId]);
 
   /**
-   * Merges existing bird data with new data from viewport segments
-   * Performs client-side deduplication to ensure we don't accumulate duplicate birds
-   * as we continue to fetch and merge data during viewport navigation.
+   * Adds new bird data to existing collection
+   * With server-side tile tracking, we don't need to deduplicate anymore
    * @param {Array} existingData - Existing bird data
-   * @param {Array} newData - New bird data to merge
-   * @returns {Array} Combined and deduplicated bird data
+   * @param {Array} newData - New bird data to add
+   * @returns {Array} Combined bird data
    */
-  const mergeBirdData = useCallback((existingData, newData) => {
+  const addNewBirdData = useCallback((existingData, newData) => {
     // If either array is empty, return the other
     if (!existingData || existingData.length === 0) return newData;
     if (!newData || newData.length === 0) return existingData;
     
-    debug.info(`Merging ${existingData.length} existing birds with ${newData.length} new birds`);
+    debug.info(`Adding ${newData.length} new birds to existing collection of ${existingData.length} birds`);
     
-    // Create a Map to deduplicate by a unique key
-    const uniqueBirds = new Map();
+    // Simply concatenate the arrays - server guarantees no duplicates
+    const result = [...existingData, ...newData];
     
-    // Process existing data first
-    existingData.forEach(bird => {
-      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-      uniqueBirds.set(key, bird);
-    });
-    
-    // Add new data, potentially overwriting duplicates with newer data
-    newData.forEach(bird => {
-      const key = `${bird.speciesCode}-${bird.lat}-${bird.lng}-${bird.obsDt}`;
-      uniqueBirds.set(key, bird);
-    });
-    
-    // Convert back to array
-    const result = Array.from(uniqueBirds.values());
-    const duplicatesRemoved = existingData.length + newData.length - result.length;
-    
-    if (duplicatesRemoved > 0) {
-      debug.info(`Removed ${duplicatesRemoved} duplicate birds during merge`);
-    }
-    
+    debug.info(`Combined collection now has ${result.length} birds`);
     return result;
   }, []);
 
@@ -869,63 +850,43 @@ const BirdMap = () => {
       return;
     }
     
-    // Get segments to fetch (if partial fetch is possible)
-    const segmentsToFetch = getViewportSegmentsToFetch(currentViewport, lastFetchViewport);
+    // With server-side client tracking, we no longer need to calculate segments
+    // The server will determine which tiles to send based on client history
     
     startLoading();
     
     try {
       let data;
       
-      // Check if we can do a partial fetch
-      if (segmentsToFetch && allBirdData) {
-        debug.info(`Performing partial fetch for ${segmentsToFetch.length} viewport segments`);
-        
-        // Fetch each segment in parallel
-        const segmentDataPromises = segmentsToFetch.map(fetchViewportSegment);
-        const segmentResults = await Promise.all(segmentDataPromises);
-        
-        // Merge all segment data
-        let newSegmentData = [];
-        segmentResults.forEach(segmentData => {
-          newSegmentData = [...newSegmentData, ...segmentData];
-        });
-        
-        // Calculate what % of the data we saved by doing a partial fetch
-        const segmentCount = newSegmentData.length;
-        const fullCount = allBirdData.length;
-        const savingsPercent = Math.round((1 - (segmentCount / fullCount)) * 100);
-        
-        debug.info(`Partial fetch optimization: Received ${segmentCount} records vs. potential ${fullCount} (saved ~${savingsPercent}% of data transfer)`);
-        
-        // Merge with existing data
-        data = mergeBirdData(allBirdData, newSegmentData);
-        
-        debug.info(`Merged data now contains ${data.length} unique bird records`);
-      } else {
-        // Full fetch required
-        debug.info('Performing complete viewport fetch');
-        
-        // Create the viewport API URL with clientId for SSE notifications
-        const apiParams = {
-          ...currentViewport,
-          clientId: clientId // Include clientId for server notifications
-        };
-        const apiUrl = buildViewportApiUrl(apiParams);
-        
-        debug.info('Fetching bird data:', {
-          viewport: currentViewport
-        });
-        
-        const response = await fetch(apiUrl);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        // We get all bird data (both regular and notable) in one call
-        data = await response.json();
+      // With server-side client tile tracking, we just need a simple fetch that always
+      // sends the clientId. The server will only return tiles we don't have.
+      debug.info('Fetching bird data for viewport');
+      
+      // Create the viewport API URL with clientId
+      const apiParams = {
+        ...currentViewport,
+        clientId: clientId
+      };
+      const apiUrl = buildViewportApiUrl(apiParams);
+      
+      debug.info('Fetching bird data:', {
+        viewport: currentViewport
+      });
+      
+      const response = await fetch(apiUrl);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+      
+      // Get new bird data from server
+      const newData = await response.json();
+      debug.info(`Received ${newData.length} new birds from server`);
+      
+      // Add new data to existing collection
+      data = addNewBirdData(allBirdData || [], newData);
+      
+      debug.info(`Bird collection now contains ${data.length} total birds`); 
       
       // Store complete data set for client-side filtering
       setAllBirdData(data);
@@ -950,7 +911,7 @@ const BirdMap = () => {
     } finally {
       endLoading(); // End the loading operation for the fetch itself
     }
-  }, [mapRef, back, selectedSpecies, lastFetchViewport, lastFetchParams, allBirdData, startLoading, endLoading, isViewportContained, filterBirdDataBySpecies, processAndDisplayFilteredData, currentCountry, getViewportSegmentsToFetch, fetchViewportSegment, mergeBirdData]);
+  }, [mapRef, back, selectedSpecies, lastFetchViewport, lastFetchParams, allBirdData, startLoading, endLoading, isViewportContained, filterBirdDataBySpecies, processAndDisplayFilteredData, currentCountry, addNewBirdData, clientId]);
   
 
   useEffect(() => {
@@ -1001,73 +962,14 @@ const BirdMap = () => {
     }
   }, [selectedSpecies, allBirdData, startLoading, endLoading]);
 
-  // Set up SSE for tile update notifications
+  // Set up SSE for tile update notifications - DISABLED FOR CLIENT TILE OPTIMIZATION
   useEffect(() => {
-    if (!clientId) return;
+    // SSE connection is disabled because we now use client-side tile tracking
+    // This eliminates the need for real-time server notifications
+    debug.info('SSE connection disabled - using client-side tile tracking instead');
     
-    // Set up SSE connection
-    debug.info('Setting up SSE connection for tile updates with clientId:', clientId);
-    
-    const connectEventSource = () => {
-      try {
-        // Close existing connection if any
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-        
-        // Create new EventSource - make sure to use the API URL from environment
-        const eventSource = new EventSource(`${import.meta.env.VITE_API_URL}/api/birds/tile-updates?clientId=${clientId}`);
-        eventSourceRef.current = eventSource;
-        
-        // Handle connection open
-        eventSource.onopen = () => {
-          debug.info('SSE connection established');
-        };
-        
-        // Handle messages
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            debug.debug('Received SSE message:', data);
-            
-            if (data.type === 'connected') {
-              debug.info('SSE connection initialized:', data.message);
-            } else if (data.type === 'tileUpdate') {
-              // Handle tile update notification
-              handleTileUpdate(data.data);
-            }
-          } catch (error) {
-            debug.error('Error parsing SSE message:', error);
-          }
-        };
-        
-        // Handle errors
-        eventSource.onerror = (error) => {
-          debug.error('SSE connection error:', error);
-          // Try to reconnect after a delay
-          setTimeout(() => {
-            if (eventSourceRef.current) {
-              eventSourceRef.current.close();
-              connectEventSource();
-            }
-          }, 5000);
-        };
-      } catch (error) {
-        debug.error('Error setting up SSE connection:', error);
-      }
-    };
-    
-    // Initial connection
-    connectEventSource();
-    
-    // Cleanup on unmount
-    return () => {
-      if (eventSourceRef.current) {
-        debug.info('Closing SSE connection');
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-    };
+    // No cleanup needed since we're not setting up anything
+    return () => {};
   }, [clientId]);
   
   /**
