@@ -62,7 +62,8 @@ import {
   SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
   generateAttribution,
-  MAP_ZOOM_CONSTRAINTS
+  MAP_ZOOM_CONSTRAINTS,
+  FETCH_DEBOUNCE_MS
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
@@ -189,8 +190,10 @@ BirdMarker.displayName = 'BirdMarker';
  * Component that handles map events and updates
  * @param {Object} props - Component props
  * @param {Function} props.onMoveEnd - Callback for map movement end
+ * @param {Function} props.onViewportChange - Callback for viewport changes
+ * @param {Function} props.onDragStart - Callback when map dragging starts
  */
-const MapEvents = ({ onMoveEnd, onViewportChange }) => {
+const MapEvents = ({ onMoveEnd, onViewportChange, onDragStart }) => {
   const map = useMapEvents({
     dragstart: () => {
       debug.debug('Map drag started, closing all popups');
@@ -199,6 +202,11 @@ const MapEvents = ({ onMoveEnd, onViewportChange }) => {
           layer.closePopup();
         }
       });
+      
+      // Notify parent component about drag start
+      if (onDragStart) {
+        onDragStart();
+      }
     },
     moveend: () => {
       const center = map.getCenter();
@@ -250,6 +258,7 @@ const BirdMap = () => {
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
   const [clientId, setClientId] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   
   // Generate a new client ID after reset
   useEffect(() => {
@@ -314,50 +323,182 @@ const BirdMap = () => {
   }, []);
 
   /**
-   * Handles selection of a bird species from the search component
-   * @param {Object} selection - The selected species object
-   * @param {string} [selection.type] - Type for special filters (rare/recent)
-   * @param {string} [selection.speciesCode] - Species code for specific birds
+   * Process filtered data and update state with it
+   * @param {Array} filteredData - Bird data filtered by species
+   * @returns {Promise<void>} Promise that resolves when processing is complete
    */
-  const handleSpeciesSelect = useCallback((selection) => {
-    debug.debug('Species selected:', selection);
-    // The selection object contains either a type (for pinned options) 
-    // or a speciesCode (for specific birds)
-    const speciesCode = selection.type || selection.speciesCode;
+  const processAndDisplayFilteredData = useCallback(async (filteredData) => {
+    const startTime = Date.now();
+    try {
+      // Process the filtered data
+      const processedSightings = await processBirdSightings(filteredData);
+      
+      // Get the current visible viewport bounds
+      const bounds = mapRef.getBounds();
+      const visibleBounds = {
+        minLat: bounds.getSouth(),
+        maxLat: bounds.getNorth(),
+        minLng: bounds.getWest(),
+        maxLng: bounds.getEast()
+      };
+      
+      // Extract visible species codes - these are species actually visible in the current viewport
+      // This is used by the SpeciesSearch component to show which birds are currently "on map"
+      const currentVisibleSpecies = new Set();
+      processedSightings.forEach(location => {
+        // Check if this location is within the visible bounds
+        const isLocationVisible = 
+          location.lat >= visibleBounds.minLat && 
+          location.lat <= visibleBounds.maxLat &&
+          location.lng >= visibleBounds.minLng && 
+          location.lng <= visibleBounds.maxLng;
+        
+        // Only add species from visible locations
+        if (isLocationVisible) {
+          location.birds.forEach(bird => {
+            if (bird.speciesCode) {
+              currentVisibleSpecies.add(bird.speciesCode);
+            }
+          });
+        }
+      });
+      
+      // Extract notable species codes - only for display in the species filter
+      // Do NOT use this for determining which birds to mark as notable in the UI
+      const currentNotableSpecies = new Set();
+      filteredData.forEach(bird => {
+        // Add to notable species set ONLY if the bird is actually from the notable API endpoint
+        if (bird.isNotable && bird.speciesCode) {
+          currentNotableSpecies.add(bird.speciesCode);
+        }
+      });
+      
+      debug.info('Processed filtered data:', {
+        sightingLocations: processedSightings.length,
+        visibleSpecies: currentVisibleSpecies.size,
+        visibleSpeciesSample: Array.from(currentVisibleSpecies).slice(0, 3),
+        notableSpecies: currentNotableSpecies.size,
+        processingTime: `${Date.now() - startTime}ms`
+      });
+      
+      // Update state - this ensures the species search dropdown shows exactly what's in the viewport
+      setVisibleSpeciesCodes(currentVisibleSpecies);
+      setNotableSpeciesCodes(currentNotableSpecies);
+      setBirdSightings(processedSightings);
+    } catch (error) {
+      debug.error('Error processing filtered data:', error);
+      // Re-throw to allow caller to handle errors
+      throw error;
+    } finally {
+      // Always end the loading operation, regardless of success or failure
+      endLoading();
+    }
+  }, [mapRef, endLoading, setBirdSightings, setVisibleSpeciesCodes, setNotableSpeciesCodes]);
+
+  /**
+   * Unified handler for filter changes (species or days)
+   * @param {string} filterType - Type of filter ('species' or 'days')
+   * @param {any} newValue - New value for the filter
+   */
+  const handleFilterChange = useCallback((filterType, newValue) => {
+    debug.debug(`Filter changed: ${filterType} = ${newValue}`);
     
-    if (speciesCode === selectedSpecies) {
-      debug.debug('Species already selected, no change needed');
+    // Extract species code from selection object if needed
+    let speciesCode, daysValue;
+    
+    if (filterType === 'species') {
+      // For species filter, the newValue is a selection object with type or speciesCode
+      speciesCode = newValue.type || newValue.speciesCode;
+      daysValue = back; // Use current days value
+      
+      // Skip if species hasn't changed
+      if (speciesCode === selectedSpecies) {
+        debug.debug('Species already selected, no change needed');
+        return;
+      }
+    } else if (filterType === 'days') {
+      // For days filter, the newValue is the days value directly
+      daysValue = newValue;
+      speciesCode = selectedSpecies; // Use current species value
+      
+      // Skip if days hasn't changed
+      if (daysValue === back) {
+        debug.debug('Days already set to this value, no change needed');
+        return;
+      }
+    } else {
+      debug.error('Invalid filter type:', filterType);
       return;
     }
-
-    // Close any open popups when changing species filter
+    
+    // Close any open popups when changing filters
     if (mapRef) {
       mapRef.closePopup();
     }
-
-    setSelectedSpecies(speciesCode);
     
+    // Update the URL parameters
     if (mapRef) {
-      updateUrlParams({
-        species: speciesCode
-      });
-      
-      // Filter data locally without refetching
-      if (allBirdData) {
-        // Update last fetch params, but don't clear the viewport data
-        setLastFetchParams({
-          ...lastFetchParams,
-          species: speciesCode
-        });
+      updateUrlParams(
+        filterType === 'species' 
+          ? { species: speciesCode } 
+          : { back: daysValue }
+      );
+    }
+    
+    // Filter with new values directly if we have data
+    if (mapRef && allBirdData) {
+      startLoading();
+      try {
+        // Apply filtering with both filters
+        const filteredData = filterAllBirdData(allBirdData, daysValue, speciesCode);
         
-        debug.info('🔄 Filtering existing viewport data for new species:', speciesCode);
-        // We'll handle the filtering in the useEffect
-      } else {
+        debug.info(`Filtered to ${filteredData.length} birds with days=${daysValue} and species=${speciesCode}`);
+        
+        // Process and display the filtered data
+        processAndDisplayFilteredData(filteredData)
+          .catch(error => {
+            debug.error('Error processing filtered data:', error);
+          })
+          .finally(() => {
+            // Update state AFTER processing the data
+            if (filterType === 'species') {
+              setSelectedSpecies(speciesCode);
+            } else {
+              setBack(daysValue);
+            }
+            
+            // Update lastFetchParams to avoid refiltering
+            if (lastFetchParams) {
+              setLastFetchParams({
+                ...lastFetchParams,
+                species: speciesCode,
+                back: daysValue
+              });
+            }
+            endLoading();
+          });
+      } catch (error) {
+        debug.error(`Error filtering by ${filterType}:`, error);
+        // Still update the state even on error
+        if (filterType === 'species') {
+          setSelectedSpecies(speciesCode);
+        } else {
+          setBack(daysValue);
+        }
+        endLoading();
+      }
+    } else {
+      // If we don't have data yet, just update the state
+      if (filterType === 'species') {
+        setSelectedSpecies(speciesCode);
         // No data yet - need to refetch
         setLastFetchParams(null); // Force refetch with new species
+      } else {
+        setBack(daysValue);
       }
     }
-  }, [mapRef, allBirdData, selectedSpecies, lastFetchParams]);
+  }, [mapRef, allBirdData, selectedSpecies, back, lastFetchParams, 
+      startLoading, endLoading, processAndDisplayFilteredData]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -389,7 +530,7 @@ const BirdMap = () => {
         animateMapToLocation(
           mapRef,
           [data.lat, data.lon],
-          12,
+          13,
           setIsMapAnimating,
           handleMoveEnd
         );
@@ -405,89 +546,52 @@ const BirdMap = () => {
     }
   };
 
-  const handleDaysChange = (e) => {
-    const newDays = e.target.value;
-    debug.debug('Changing days back to:', newDays);
+  /**
+   * Filter all bird data by days and species
+   * @param {Array} birds - Bird data to filter
+   * @param {string} daysValue - Days back to filter by
+   * @param {string} speciesCode - Species code to filter by
+   * @returns {Array} Filtered data matching both criteria
+   */
+  const filterAllBirdData = useCallback((birds, daysValue, speciesCode) => {
+    if (!birds || birds.length === 0) return [];
     
-    // Close any open popups when changing days filter
-    if (mapRef) {
-      mapRef.closePopup();
-    }
+    // First filter by days
+    const backDaysNum = parseInt(daysValue, 10);
+    let filtered = birds;
     
-    // Update the URL parameters
-    if (mapRef) {
-      updateUrlParams({
-        back: newDays,
+    if (!isNaN(backDaysNum) && backDaysNum > 0) {
+      // Calculate cutoff date based on selected "back" value
+      const cutoffDate = new Date();
+      cutoffDate.setHours(0, 0, 0, 0);
+      cutoffDate.setDate(cutoffDate.getDate() - backDaysNum);
+      
+      debug.info(`Filtering to last ${backDaysNum} days (since ${cutoffDate.toISOString().split('T')[0]})`);
+          
+      // Filter birds by observation date
+      filtered = filtered.filter(bird => {
+        if (!bird.obsDt) return false;
+        const obsDate = new Date(bird.obsDt);
+        obsDate.setHours(0, 0, 0, 0);
+        return obsDate >= cutoffDate;
       });
+      
+      debug.debug(`Date filtering applied, ${filtered.length} birds remain`);
     }
     
-    // Filter with new days value directly, don't rely on state update
-    if (mapRef && allBirdData) {
-      startLoading();
-      try {
-        // Create a manual filter function that uses the new days value
-        const manualFilterByDays = (birds) => {
-          if (!birds || birds.length === 0) return [];
-          
-          const backDaysNum = parseInt(newDays, 10);
-          if (isNaN(backDaysNum) || backDaysNum <= 0) return birds;
-          
-          // Calculate cutoff date with new days value
-          const cutoffDate = new Date();
-          cutoffDate.setHours(0, 0, 0, 0);
-          cutoffDate.setDate(cutoffDate.getDate() - backDaysNum);
-          
-          debug.info(`Filtering to last ${backDaysNum} days (since ${cutoffDate.toISOString().split('T')[0]})`);
-          
-          // Filter birds
-          return birds.filter(bird => {
-            if (!bird.obsDt) return false;
-            const obsDate = new Date(bird.obsDt);
-            obsDate.setHours(0, 0, 0, 0);
-            return obsDate >= cutoffDate;
-          });
-        };
-        
-        // First filter by the new days value
-        const daysFiltered = manualFilterByDays(allBirdData);
-        
-        // Then apply species filtering
-        let speciesFiltered;
-        if (selectedSpecies === SPECIES_CODES.ALL) {
-          speciesFiltered = daysFiltered;
-        } else if (selectedSpecies === SPECIES_CODES.RARE) {
-          speciesFiltered = daysFiltered.filter(bird => bird.isNotable);
-        } else {
-          speciesFiltered = daysFiltered.filter(bird => bird.speciesCode === selectedSpecies);
-        }
-        
-        debug.info(`Filtered to ${speciesFiltered.length} birds with days=${newDays} and species=${selectedSpecies}`);
-        
-        // Process and display the filtered data
-        processAndDisplayFilteredData(speciesFiltered)
-          .catch(error => {
-            debug.error('Error processing filtered data:', error);
-          })
-          .finally(() => {
-            // Update state AFTER processing the data
-            setBack(newDays);
-            setLastFetchParams({
-              ...lastFetchParams,
-              back: newDays
-            });
-            endLoading();
-          });
-      } catch (error) {
-        debug.error('Error filtering by days:', error);
-        // Still update the state even on error
-        setBack(newDays);
-        endLoading();
-      }
+    // Then filter by species
+    if (speciesCode === SPECIES_CODES.ALL) {
+      // No additional filtering needed
+    } else if (speciesCode === SPECIES_CODES.RARE) {
+      filtered = filtered.filter(bird => bird.isNotable);
     } else {
-      // If we don't have data yet, just update the state
-      setBack(newDays);
+      filtered = filtered.filter(bird => bird.speciesCode === speciesCode);
     }
-  };
+    
+    debug.info(`Filtered to ${filtered.length} birds with days=${daysValue} and species=${speciesCode}`);
+        
+    return filtered;
+  }, []);
   
   /**
    * Checks if the new viewport is contained within the old viewport
@@ -519,74 +623,6 @@ const BirdMap = () => {
     return isContained;
   };
   
-  /**
-   * Filters bird data based on how many days back to include
-   * @param {Array} birds - Bird data to filter
-   * @returns {Array} Filtered birds within the selected time range
-   */
-  const filterBirdDataByDays = useCallback((birds) => {
-    if (!birds || birds.length === 0) return [];
-    
-    const backDays = parseInt(back, 10);
-    if (isNaN(backDays) || backDays <= 0) return birds;
-    
-    // Calculate cutoff date based on selected "back" value
-    // Reset time to midnight for consistent day comparisons
-    const cutoffDate = new Date();
-    cutoffDate.setHours(0, 0, 0, 0);
-    cutoffDate.setDate(cutoffDate.getDate() - backDays);
-    
-    // Create a debug sample of birds with dates for verification
-    const sampleBirds = birds.slice(0, Math.min(5, birds.length));
-    const dateSamples = sampleBirds.map(bird => ({
-      obsDt: bird.obsDt,
-      parsed: new Date(bird.obsDt).toISOString().split('T')[0]
-    }));
-    
-    debug.info(`Filtering birds by date: showing last ${backDays} days (since ${cutoffDate.toISOString().split('T')[0]})`);
-    debug.debug('Date samples:', dateSamples);
-    
-    let beforeCount = birds.length;
-    
-    // Filter birds by observation date, handling the date comparison properly
-    const filtered = birds.filter(bird => {
-      if (!bird.obsDt) return false;
-      
-      // Parse the observation date and reset time to midnight for day-level comparison
-      const obsDate = new Date(bird.obsDt);
-      obsDate.setHours(0, 0, 0, 0);
-      
-      return obsDate >= cutoffDate;
-    });
-    
-    debug.info(`Date filtering: ${beforeCount} → ${filtered.length} birds (removed ${beforeCount - filtered.length})`);
-    
-    return filtered;
-  }, [back]);
-  
-  /**
-   * Filters bird data based on selected species type
-   * @param {Array} allBirds - Complete bird data from server
-   * @returns {Array} Filtered bird data
-   */
-  const filterBirdDataBySpecies = useCallback((allBirds) => {
-    if (!allBirds) return [];
-    
-    // First filter by days
-    const filteredByDays = filterBirdDataByDays(allBirds);
-    
-    // Then filter by species
-    if (selectedSpecies === SPECIES_CODES.ALL) {
-      return filteredByDays;
-    }
-    
-    if (selectedSpecies === SPECIES_CODES.RARE) {
-      return filteredByDays.filter(bird => bird.isNotable);
-    }
-    
-    // Filter by specific species
-    return filteredByDays.filter(bird => bird.speciesCode === selectedSpecies);
-  }, [selectedSpecies, filterBirdDataByDays]);
 
   /**
    * Handles map movement events, updates center position and detects region changes
@@ -728,14 +764,30 @@ const BirdMap = () => {
     setVisibleSpeciesCodes(visibleInViewport);
   }, [birdSightings, visibleSpeciesCodes]);
   
+  // Timer ref for debouncing fetch requests
+  const fetchTimerRef = useRef(null);
+  // State to trigger fetches
+  const [shouldFetch, setShouldFetch] = useState(false);
+
   const handleMoveEnd = useCallback((center) => {
-    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating });
+    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating, isDragging });
     setMapCenter({ lat: center.lat, lng: center.lng });
+    
+    // Reset dragging state if it was set
+    if (isDragging) {
+      setIsDragging(false);
+    }
 
     // Skip region check if the map is currently animating (during flyTo)
     if (isMapAnimating) {
       debug.debug('Skipping region check during map animation');
       return;
+    }
+
+    // Clear any existing timer
+    if (fetchTimerRef.current) {
+      debug.debug('Clearing existing fetch timer');
+      clearTimeout(fetchTimerRef.current);
     }
 
     // Check for region changes using the new region detection logic
@@ -777,90 +829,31 @@ const BirdMap = () => {
           await updateRegionSpecies(regionCode);
           debug.debug('Completed species fetch');
           
-          // Force data refetch with new region
+          // Force data refetch with new region - use immediate fetch for region changes
           setLastFetchParams(null);
+          debug.debug('Region changed, using immediate fetch');
+          setShouldFetch(true); // This will trigger fetch via the useEffect
+          return; // Skip the debounced fetch
         }
       } catch (error) {
         debug.error('Error updating region:', error);
       }
+      
+      // If we get here, region hasn't changed, use debounced fetch
+      debug.debug(`Scheduling fetch with ${FETCH_DEBOUNCE_MS}ms debounce`);
+      
+      // Set up the debounced fetch timer
+      fetchTimerRef.current = setTimeout(() => {
+        debug.debug('Debounce timer completed, triggering fetch');
+        setShouldFetch(true);
+        fetchTimerRef.current = null;
+      }, FETCH_DEBOUNCE_MS);
     };
     
     // Check for region changes - our new utility handles caching internally
     updateRegion();
-  }, [currentCountry, updateRegionSpecies, isMapAnimating]);
+  }, [currentCountry, updateRegionSpecies, isMapAnimating, isDragging]);
 
-  /**
-   * Process filtered data and update state with it
-   * @param {Array} filteredData - Bird data filtered by species
-   * @returns {Promise<void>} Promise that resolves when processing is complete
-   */
-  const processAndDisplayFilteredData = useCallback(async (filteredData) => {
-    const startTime = Date.now();
-    try {
-      // Process the filtered data
-      const processedSightings = await processBirdSightings(filteredData);
-      
-      // Get the current visible viewport bounds
-      const bounds = mapRef.getBounds();
-      const visibleBounds = {
-        minLat: bounds.getSouth(),
-        maxLat: bounds.getNorth(),
-        minLng: bounds.getWest(),
-        maxLng: bounds.getEast()
-      };
-      
-      // Extract visible species codes - these are species actually visible in the current viewport
-      // This is used by the SpeciesSearch component to show which birds are currently "on map"
-      const currentVisibleSpecies = new Set();
-      processedSightings.forEach(location => {
-        // Check if this location is within the visible bounds
-        const isLocationVisible = 
-          location.lat >= visibleBounds.minLat && 
-          location.lat <= visibleBounds.maxLat &&
-          location.lng >= visibleBounds.minLng && 
-          location.lng <= visibleBounds.maxLng;
-        
-        // Only add species from visible locations
-        if (isLocationVisible) {
-          location.birds.forEach(bird => {
-            if (bird.speciesCode) {
-              currentVisibleSpecies.add(bird.speciesCode);
-            }
-          });
-        }
-      });
-      
-      // Extract notable species codes - only for display in the species filter
-      // Do NOT use this for determining which birds to mark as notable in the UI
-      const currentNotableSpecies = new Set();
-      filteredData.forEach(bird => {
-        // Add to notable species set ONLY if the bird is actually from the notable API endpoint
-        if (bird.isNotable && bird.speciesCode) {
-          currentNotableSpecies.add(bird.speciesCode);
-        }
-      });
-      
-      debug.info('Processed filtered data:', {
-        sightingLocations: processedSightings.length,
-        visibleSpecies: currentVisibleSpecies.size,
-        visibleSpeciesSample: Array.from(currentVisibleSpecies).slice(0, 3),
-        notableSpecies: currentNotableSpecies.size,
-        processingTime: `${Date.now() - startTime}ms`
-      });
-      
-      // Update state - this ensures the species search dropdown shows exactly what's in the viewport
-      setVisibleSpeciesCodes(currentVisibleSpecies);
-      setNotableSpeciesCodes(currentNotableSpecies);
-      setBirdSightings(processedSightings);
-    } catch (error) {
-      debug.error('Error processing filtered data:', error);
-      // Re-throw to allow caller to handle errors
-      throw error;
-    } finally {
-      // Always end the loading operation, regardless of success or failure
-      endLoading();
-    }
-  }, [mapRef, endLoading, setBirdSightings, setVisibleSpeciesCodes, setNotableSpeciesCodes]);
 
   /**
    * Fetches bird sighting data for a specific viewport segment
@@ -953,7 +946,7 @@ const BirdMap = () => {
         startLoading();
         
         // Filter data
-        const filteredData = filterBirdDataBySpecies(allBirdData);
+        const filteredData = filterAllBirdData(allBirdData, back, );
         
         // Process filtered data (the function handles endLoading internally)
         startLoading(); // Add another loading operation for the processing stage
@@ -1029,7 +1022,7 @@ const BirdMap = () => {
       setLastFetchViewport(currentViewport);
       
       // Filter the data by current species selection
-      const filteredData = filterBirdDataBySpecies(data);
+      const filteredData = filterAllBirdData(data, back, selectedSpecies);
       
       // Process and display the data - note: this function handles endLoading internally
       startLoading(); // Add another loading operation for the processing stage
@@ -1047,9 +1040,19 @@ const BirdMap = () => {
     } finally {
       endLoading(); // End the loading operation for the fetch itself
     }
-  }, [mapRef, back, selectedSpecies, lastFetchViewport, lastFetchParams, allBirdData, startLoading, endLoading, isViewportContained, filterBirdDataBySpecies, processAndDisplayFilteredData, currentCountry, addNewBirdData, clientId]);
+  }, [mapRef, back, selectedSpecies, lastFetchViewport, lastFetchParams, allBirdData, startLoading, endLoading, isViewportContained, filterAllBirdData, processAndDisplayFilteredData, currentCountry, addNewBirdData, clientId]);
   
 
+  // Cleanup any pending timers when unmounting
+  useEffect(() => {
+    return () => {
+      if (fetchTimerRef.current) {
+        clearTimeout(fetchTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Effect to trigger data fetch when parameters change
   useEffect(() => {
     debug.debug('Fetch effect running with:', {
       loading,
@@ -1057,46 +1060,58 @@ const BirdMap = () => {
       selectedSpecies,
       back,
       zoom,
-      hasMapRef: !!mapRef
+      hasMapRef: !!mapRef,
+      shouldFetch,
+      hasAllBirdData: !!allBirdData
     });
-    if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef) {
-      debug.debug('Triggering bird data fetch');
-      fetchBirdData();
-    }
-  }, [back, selectedSpecies, mapCenter, zoom, mapRef, loading, fetchBirdData]);
-  
-  // Effect to handle species filtering when we have viewport data
-  useEffect(() => {
-    if (allBirdData && loadingStateRef.current === 0) {
-      debug.info('🔄 Species changed, filtering existing data:', selectedSpecies);
+    
+    // Handle filter changes with local filtering when we have cached data
+    if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef && 
+        lastFetchParams && allBirdData) {
       
-      // Start a loading operation for the filtering process
-      startLoading();
-      
-      // Need to use requestAnimationFrame to ensure the loading state renders
-      // before we start potentially CPU-intensive filtering
-      requestAnimationFrame(() => {
+      if (lastFetchParams.species !== selectedSpecies || lastFetchParams.back !== back) {
+        debug.debug('Filter changed, using local data filtering (no fetch)');
+        
+        // Start a loading operation for the filtering process
+        startLoading();
+        
         try {
-          // Filter existing data without fetching
-          const filteredData = filterBirdDataBySpecies(allBirdData);
+          // Apply local filtering to existing data
+          const filteredData = filterAllBirdData(allBirdData, back, selectedSpecies);
           
           // Process and display the filtered data
-          startLoading(); // Add another loading operation for the processing stage
           processAndDisplayFilteredData(filteredData)
             .catch(error => {
-              debug.error('Error during species filtering:', error);
-            })
-            .finally(() => {
-              // End the loading operation for filtering
-              endLoading();
+              debug.error('Error processing filtered data:', error);
             });
+          
+          // Update last fetch params to avoid refiltering
+          setLastFetchParams({
+            ...lastFetchParams,
+            species: selectedSpecies,
+            back: back
+          });
         } catch (error) {
-          debug.error('Error filtering data:', error);
+          debug.error('Error during local filtering:', error);
           endLoading();
         }
-      });
+        return;
+      }
     }
-  }, [selectedSpecies, allBirdData, startLoading, endLoading]);
+    
+    // For filter changes when we don't have cached data, or for any other reason we need data
+    // (map movement, initial load), perform a fetch
+    if (shouldFetch && !loading && mapRef) {
+      debug.debug('Executing fetch from debounce timer or initial load');
+      setShouldFetch(false); // Reset the trigger
+      fetchBirdData();
+    }
+  }, [back, selectedSpecies, mapCenter, zoom, mapRef, loading, fetchBirdData, lastFetchParams, shouldFetch, 
+      allBirdData, filterAllBirdData, processAndDisplayFilteredData, startLoading, endLoading]);
+  
+  // This effect is no longer needed as we handle filter changes 
+  // directly in the main fetch effect above to avoid duplicate handling
+  // If we still need this for other cases, we can reimplement it
 
   // Set up SSE for tile update notifications - DISABLED FOR CLIENT TILE OPTIMIZATION
   useEffect(() => {
@@ -1188,7 +1203,7 @@ const BirdMap = () => {
           setLastFetchViewport(currentViewport);
           
           // Filter by current species
-          const filteredData = filterBirdDataBySpecies(data);
+          const filteredData = filterAllBirdData(data, back, selectedSpecies);
           
           // Process and display
           processAndDisplayFilteredData(filteredData);
@@ -1202,7 +1217,7 @@ const BirdMap = () => {
           debug.error('Error refreshing map with background tiles:', error);
         });
     }, 100);
-  }, [mapRef, lastFetchViewport, fetchBirdData, clientId, back, setLastFetchViewport, filterBirdDataBySpecies, processAndDisplayFilteredData, buildViewportApiUrl]);
+  }, [mapRef, lastFetchViewport, fetchBirdData, clientId, back, setLastFetchViewport, filterAllBirdData, processAndDisplayFilteredData, buildViewportApiUrl]);
   
   // Load URL parameters on component mount and reset client tracking
   useEffect(() => {
@@ -1245,6 +1260,10 @@ const BirdMap = () => {
 
       setLastFetchParams(null);
       debug.info('URL parameters loaded:', params);
+      
+      // Trigger initial fetch once parameters are loaded
+      debug.info('Triggering initial fetch after URL parameters load');
+      setShouldFetch(true);
     } catch (error) {
       debug.error('Error loading URL parameters:', error);
     }
@@ -1259,7 +1278,7 @@ const BirdMap = () => {
         <div style={LAYOUT_STYLES.controlGroup}>
 
           <SpeciesSearch
-            onSpeciesSelect={handleSpeciesSelect}
+            onSpeciesSelect={(selection) => handleFilterChange('species', selection)}
             disabled={loading || speciesLoading}
             currentCountry={currentCountry}
             regionSpecies={regionSpecies}
@@ -1275,7 +1294,7 @@ const BirdMap = () => {
             <span style={{ color: COLORS.text.primary }}>Last</span>
             <select
               value={back}
-              onChange={handleDaysChange}
+              onChange={(e) => handleFilterChange('days', e.target.value)}
               style={MAP_CONTROL_STYLES.input}
             >
               {DAYS_BACK_OPTIONS.map(option => (
@@ -1334,7 +1353,18 @@ const BirdMap = () => {
               attribution={generateAttribution()}
               url={MAP_TILE_URL}
             />
-            <MapEvents onMoveEnd={handleMoveEnd} onViewportChange={handleViewportChange} />
+            <MapEvents 
+              onMoveEnd={handleMoveEnd} 
+              onViewportChange={handleViewportChange} 
+              onDragStart={() => {
+                setIsDragging(true);
+                // Cancel any pending fetch timer when starting a new drag
+                if (fetchTimerRef.current) {
+                  clearTimeout(fetchTimerRef.current);
+                  fetchTimerRef.current = null;
+                }
+              }}
+            />
             <PopupInteractionHandler />
             <ZoomControl position="topright" />
             <LocationControl 
@@ -1354,7 +1384,7 @@ const BirdMap = () => {
                     ? createNotableBirdIcon()
                     : DefaultIcon}
                 notableSpeciesCodes={notableSpeciesCodes}
-                onSpeciesSelect={handleSpeciesSelect}
+                onSpeciesSelect={handleFilterChange}
                 mapRef={mapRef}
               />
             ))}
