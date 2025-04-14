@@ -83,6 +83,12 @@ export const MAP_ZOOM_CONSTRAINTS = {
 };
 
 /**
+* Debounce time in milliseconds for fetch operations after map movement
+* @type {number}
+*/
+export const FETCH_DEBOUNCE_MS = 500;
+
+/**
 * Configuration object defining attribution links and metadata
 * @type {Object.<string, {url: string, text: string, internal?: boolean}>}
 */

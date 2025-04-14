@@ -62,7 +62,8 @@ import {
   SPECIES_CODES,
   DEFAULT_MAP_PARAMS,
   generateAttribution,
-  MAP_ZOOM_CONSTRAINTS
+  MAP_ZOOM_CONSTRAINTS,
+  FETCH_DEBOUNCE_MS
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
@@ -189,8 +190,10 @@ BirdMarker.displayName = 'BirdMarker';
  * Component that handles map events and updates
  * @param {Object} props - Component props
  * @param {Function} props.onMoveEnd - Callback for map movement end
+ * @param {Function} props.onViewportChange - Callback for viewport changes
+ * @param {Function} props.onDragStart - Callback when map dragging starts
  */
-const MapEvents = ({ onMoveEnd, onViewportChange }) => {
+const MapEvents = ({ onMoveEnd, onViewportChange, onDragStart }) => {
   const map = useMapEvents({
     dragstart: () => {
       debug.debug('Map drag started, closing all popups');
@@ -199,6 +202,11 @@ const MapEvents = ({ onMoveEnd, onViewportChange }) => {
           layer.closePopup();
         }
       });
+      
+      // Notify parent component about drag start
+      if (onDragStart) {
+        onDragStart();
+      }
     },
     moveend: () => {
       const center = map.getCenter();
@@ -250,6 +258,7 @@ const BirdMap = () => {
   const [visibleSpeciesCodes, setVisibleSpeciesCodes] = useState(new Set());
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
   const [clientId, setClientId] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   
   // Generate a new client ID after reset
   useEffect(() => {
@@ -357,7 +366,8 @@ const BirdMap = () => {
         setLastFetchParams(null); // Force refetch with new species
       }
     }
-  }, [mapRef, allBirdData, selectedSpecies, lastFetchParams]);
+  }, [mapRef, allBirdData, selectedSpecies, lastFetchParams, 
+     startLoading, endLoading]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -389,7 +399,7 @@ const BirdMap = () => {
         animateMapToLocation(
           mapRef,
           [data.lat, data.lon],
-          12,
+          13,
           setIsMapAnimating,
           handleMoveEnd
         );
@@ -471,10 +481,12 @@ const BirdMap = () => {
           .finally(() => {
             // Update state AFTER processing the data
             setBack(newDays);
-            setLastFetchParams({
-              ...lastFetchParams,
-              back: newDays
-            });
+            if (lastFetchParams) {
+              setLastFetchParams({
+                ...lastFetchParams,
+                back: newDays
+              });
+            }
             endLoading();
           });
       } catch (error) {
@@ -728,14 +740,30 @@ const BirdMap = () => {
     setVisibleSpeciesCodes(visibleInViewport);
   }, [birdSightings, visibleSpeciesCodes]);
   
+  // Timer ref for debouncing fetch requests
+  const fetchTimerRef = useRef(null);
+  // State to trigger fetches
+  const [shouldFetch, setShouldFetch] = useState(false);
+
   const handleMoveEnd = useCallback((center) => {
-    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating });
+    debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating, isDragging });
     setMapCenter({ lat: center.lat, lng: center.lng });
+    
+    // Reset dragging state if it was set
+    if (isDragging) {
+      setIsDragging(false);
+    }
 
     // Skip region check if the map is currently animating (during flyTo)
     if (isMapAnimating) {
       debug.debug('Skipping region check during map animation');
       return;
+    }
+
+    // Clear any existing timer
+    if (fetchTimerRef.current) {
+      debug.debug('Clearing existing fetch timer');
+      clearTimeout(fetchTimerRef.current);
     }
 
     // Check for region changes using the new region detection logic
@@ -777,17 +805,30 @@ const BirdMap = () => {
           await updateRegionSpecies(regionCode);
           debug.debug('Completed species fetch');
           
-          // Force data refetch with new region
+          // Force data refetch with new region - use immediate fetch for region changes
           setLastFetchParams(null);
+          debug.debug('Region changed, using immediate fetch');
+          setShouldFetch(true); // This will trigger fetch via the useEffect
+          return; // Skip the debounced fetch
         }
       } catch (error) {
         debug.error('Error updating region:', error);
       }
+      
+      // If we get here, region hasn't changed, use debounced fetch
+      debug.debug(`Scheduling fetch with ${FETCH_DEBOUNCE_MS}ms debounce`);
+      
+      // Set up the debounced fetch timer
+      fetchTimerRef.current = setTimeout(() => {
+        debug.debug('Debounce timer completed, triggering fetch');
+        setShouldFetch(true);
+        fetchTimerRef.current = null;
+      }, FETCH_DEBOUNCE_MS);
     };
     
     // Check for region changes - our new utility handles caching internally
     updateRegion();
-  }, [currentCountry, updateRegionSpecies, isMapAnimating]);
+  }, [currentCountry, updateRegionSpecies, isMapAnimating, isDragging]);
 
   /**
    * Process filtered data and update state with it
@@ -1050,6 +1091,16 @@ const BirdMap = () => {
   }, [mapRef, back, selectedSpecies, lastFetchViewport, lastFetchParams, allBirdData, startLoading, endLoading, isViewportContained, filterBirdDataBySpecies, processAndDisplayFilteredData, currentCountry, addNewBirdData, clientId]);
   
 
+  // Cleanup any pending timers when unmounting
+  useEffect(() => {
+    return () => {
+      if (fetchTimerRef.current) {
+        clearTimeout(fetchTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Effect to trigger data fetch when parameters change
   useEffect(() => {
     debug.debug('Fetch effect running with:', {
       loading,
@@ -1057,46 +1108,58 @@ const BirdMap = () => {
       selectedSpecies,
       back,
       zoom,
-      hasMapRef: !!mapRef
+      hasMapRef: !!mapRef,
+      shouldFetch,
+      hasAllBirdData: !!allBirdData
     });
-    if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef) {
-      debug.debug('Triggering bird data fetch');
-      fetchBirdData();
-    }
-  }, [back, selectedSpecies, mapCenter, zoom, mapRef, loading, fetchBirdData]);
-  
-  // Effect to handle species filtering when we have viewport data
-  useEffect(() => {
-    if (allBirdData && loadingStateRef.current === 0) {
-      debug.info('🔄 Species changed, filtering existing data:', selectedSpecies);
+    
+    // Handle filter changes with local filtering when we have cached data
+    if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef && 
+        lastFetchParams && allBirdData) {
       
-      // Start a loading operation for the filtering process
-      startLoading();
-      
-      // Need to use requestAnimationFrame to ensure the loading state renders
-      // before we start potentially CPU-intensive filtering
-      requestAnimationFrame(() => {
+      if (lastFetchParams.species !== selectedSpecies || lastFetchParams.back !== back) {
+        debug.debug('Filter changed, using local data filtering (no fetch)');
+        
+        // Start a loading operation for the filtering process
+        startLoading();
+        
         try {
-          // Filter existing data without fetching
+          // Apply local filtering to existing data
           const filteredData = filterBirdDataBySpecies(allBirdData);
           
           // Process and display the filtered data
-          startLoading(); // Add another loading operation for the processing stage
           processAndDisplayFilteredData(filteredData)
             .catch(error => {
-              debug.error('Error during species filtering:', error);
-            })
-            .finally(() => {
-              // End the loading operation for filtering
-              endLoading();
+              debug.error('Error processing filtered data:', error);
             });
+          
+          // Update last fetch params to avoid refiltering
+          setLastFetchParams({
+            ...lastFetchParams,
+            species: selectedSpecies,
+            back: back
+          });
         } catch (error) {
-          debug.error('Error filtering data:', error);
+          debug.error('Error during local filtering:', error);
           endLoading();
         }
-      });
+        return;
+      }
     }
-  }, [selectedSpecies, allBirdData, startLoading, endLoading]);
+    
+    // For filter changes when we don't have cached data, or for any other reason we need data
+    // (map movement, initial load), perform a fetch
+    if (shouldFetch && !loading && mapRef) {
+      debug.debug('Executing fetch from debounce timer or initial load');
+      setShouldFetch(false); // Reset the trigger
+      fetchBirdData();
+    }
+  }, [back, selectedSpecies, mapCenter, zoom, mapRef, loading, fetchBirdData, lastFetchParams, shouldFetch, 
+      allBirdData, filterBirdDataBySpecies, processAndDisplayFilteredData, startLoading, endLoading]);
+  
+  // This effect is no longer needed as we handle filter changes 
+  // directly in the main fetch effect above to avoid duplicate handling
+  // If we still need this for other cases, we can reimplement it
 
   // Set up SSE for tile update notifications - DISABLED FOR CLIENT TILE OPTIMIZATION
   useEffect(() => {
@@ -1245,6 +1308,10 @@ const BirdMap = () => {
 
       setLastFetchParams(null);
       debug.info('URL parameters loaded:', params);
+      
+      // Trigger initial fetch once parameters are loaded
+      debug.info('Triggering initial fetch after URL parameters load');
+      setShouldFetch(true);
     } catch (error) {
       debug.error('Error loading URL parameters:', error);
     }
@@ -1334,7 +1401,18 @@ const BirdMap = () => {
               attribution={generateAttribution()}
               url={MAP_TILE_URL}
             />
-            <MapEvents onMoveEnd={handleMoveEnd} onViewportChange={handleViewportChange} />
+            <MapEvents 
+              onMoveEnd={handleMoveEnd} 
+              onViewportChange={handleViewportChange} 
+              onDragStart={() => {
+                setIsDragging(true);
+                // Cancel any pending fetch timer when starting a new drag
+                if (fetchTimerRef.current) {
+                  clearTimeout(fetchTimerRef.current);
+                  fetchTimerRef.current = null;
+                }
+              }}
+            />
             <PopupInteractionHandler />
             <ZoomControl position="topright" />
             <LocationControl 
