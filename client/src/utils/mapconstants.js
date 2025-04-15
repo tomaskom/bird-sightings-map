@@ -75,11 +75,13 @@ export const REGION_BUFFER_DISTANCE = 25;
 * @property {number} MIN_ZOOM - Minimum zoom level (smaller number = more zoomed out)
 * @property {number} MAX_ZOOM - Maximum zoom level (larger number = more zoomed in)
 * @property {number} MAX_VIEWPORT_KM - Maximum viewport dimension in kilometers
+* @property {number} FETCH_THRESHOLD - Zoom level threshold for fetching bird data (won't fetch below this)
 */
 export const MAP_ZOOM_CONSTRAINTS = {
-  MIN_ZOOM: 10, // Prevents zooming out too far (limit ~50km viewport)
-  MAX_ZOOM: 18,
-  MAX_VIEWPORT_KM: 50
+  MIN_ZOOM: 8, // Allow zooming out further for navigation
+  MAX_ZOOM: 20,
+  MAX_VIEWPORT_KM: 50,
+  FETCH_THRESHOLD: 12 // Won't fetch bird data below this zoom level
 };
 
 /**
