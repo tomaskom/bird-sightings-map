@@ -67,7 +67,7 @@ import {
 } from '../utils/mapconstants';
 import { BirdPopupContent, PopupInteractionHandler } from '../components/popups/BirdPopups';
 import { LocationControl } from '../components/location/LocationControls';
-import { LoadingOverlay } from '../components/ui/Notifications';
+import { LoadingOverlay, NavigationModeOverlay } from '../components/ui/Notifications';
 import SpeciesSearch from '../components/ui/SpeciesSearch';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.locatecontrol/dist/L.Control.Locate.min.css';
@@ -193,7 +193,7 @@ BirdMarker.displayName = 'BirdMarker';
  * @param {Function} props.onViewportChange - Callback for viewport changes
  * @param {Function} props.onDragStart - Callback when map dragging starts
  */
-const MapEvents = ({ onMoveEnd, onViewportChange, onDragStart }) => {
+const MapEvents = ({ onMoveEnd, onViewportChange, onDragStart, onZoomChange }) => {
   const map = useMapEvents({
     dragstart: () => {
       debug.debug('Map drag started, closing all popups');
@@ -206,6 +206,16 @@ const MapEvents = ({ onMoveEnd, onViewportChange, onDragStart }) => {
       // Notify parent component about drag start
       if (onDragStart) {
         onDragStart();
+      }
+    },
+    zoomend: () => {
+      // Update zoom level when it changes
+      const newZoom = map.getZoom();
+      debug.debug('Map zoom changed:', { zoom: newZoom });
+      
+      // Notify parent about zoom change
+      if (onZoomChange) {
+        onZoomChange(newZoom);
       }
     },
     moveend: () => {
@@ -224,6 +234,11 @@ const MapEvents = ({ onMoveEnd, onViewportChange, onDragStart }) => {
       // Update which species are considered "visible" based on new viewport
       if (onViewportChange) {
         onViewportChange(map.getBounds());
+      }
+      
+      // Also ensure zoom is updated on moveend
+      if (onZoomChange) {
+        onZoomChange(zoom);
       }
     }
   });
@@ -259,6 +274,7 @@ const BirdMap = () => {
   const [notableSpeciesCodes, setNotableSpeciesCodes] = useState(new Set());
   const [clientId, setClientId] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isNavigationMode, setIsNavigationMode] = useState(false);
   
   // Generate a new client ID after reset
   useEffect(() => {
@@ -769,6 +785,28 @@ const BirdMap = () => {
   // State to trigger fetches
   const [shouldFetch, setShouldFetch] = useState(false);
 
+  /**
+   * Handles zoom level changes and updates navigation mode
+   * @param {number} newZoom - New zoom level
+   */
+  const handleZoomChange = useCallback((newZoom) => {
+    setZoom(newZoom);
+    
+    // Check if we should be in navigation mode (below threshold)
+    const shouldBeNavigationMode = newZoom < MAP_ZOOM_CONSTRAINTS.FETCH_THRESHOLD;
+    
+    // Only update if the state is changing
+    if (shouldBeNavigationMode !== isNavigationMode) {
+      debug.info(`${shouldBeNavigationMode ? 'Entering' : 'Exiting'} navigation mode at zoom level ${newZoom}`);
+      setIsNavigationMode(shouldBeNavigationMode);
+      
+      // If exiting navigation mode and we have a map reference, trigger a data fetch
+      if (!shouldBeNavigationMode && mapRef) {
+        setShouldFetch(true);
+      }
+    }
+  }, [mapRef, isNavigationMode]);
+
   const handleMoveEnd = useCallback((center) => {
     debug.debug('Map move ended at:', { lat: center.lat, lng: center.lng, isAnimating: isMapAnimating, isDragging });
     setMapCenter({ lat: center.lat, lng: center.lng });
@@ -781,6 +819,12 @@ const BirdMap = () => {
     // Skip region check if the map is currently animating (during flyTo)
     if (isMapAnimating) {
       debug.debug('Skipping region check during map animation');
+      return;
+    }
+    
+    // Skip fetch if in navigation mode (below zoom threshold)
+    if (isNavigationMode) {
+      debug.debug('In navigation mode, skipping data fetch');
       return;
     }
 
@@ -1062,8 +1106,15 @@ const BirdMap = () => {
       zoom,
       hasMapRef: !!mapRef,
       shouldFetch,
-      hasAllBirdData: !!allBirdData
+      hasAllBirdData: !!allBirdData,
+      isNavigationMode
     });
+    
+    // Skip fetching if in navigation mode
+    if (isNavigationMode) {
+      debug.debug('In navigation mode, skipping fetch effect');
+      return;
+    }
     
     // Handle filter changes with local filtering when we have cached data
     if (!loading && mapCenter && selectedSpecies && back && zoom && mapRef && 
@@ -1101,13 +1152,13 @@ const BirdMap = () => {
     
     // For filter changes when we don't have cached data, or for any other reason we need data
     // (map movement, initial load), perform a fetch
-    if (shouldFetch && !loading && mapRef) {
+    if (shouldFetch && !loading && mapRef && !isNavigationMode) {
       debug.debug('Executing fetch from debounce timer or initial load');
       setShouldFetch(false); // Reset the trigger
       fetchBirdData();
     }
   }, [back, selectedSpecies, mapCenter, zoom, mapRef, loading, fetchBirdData, lastFetchParams, shouldFetch, 
-      allBirdData, filterAllBirdData, processAndDisplayFilteredData, startLoading, endLoading]);
+      allBirdData, filterAllBirdData, processAndDisplayFilteredData, startLoading, endLoading, isNavigationMode]);
   
   // This effect is no longer needed as we handle filter changes 
   // directly in the main fetch effect above to avoid duplicate handling
@@ -1234,6 +1285,11 @@ const BirdMap = () => {
         setSelectedSpecies(params.species);
         setBack(params.back);
         setZoom(params.zoom);
+        
+        // Initialize navigation mode based on initial zoom level
+        const initialNavigationMode = params.zoom < MAP_ZOOM_CONSTRAINTS.FETCH_THRESHOLD;
+        setIsNavigationMode(initialNavigationMode);
+        debug.info(`Initial navigation mode: ${initialNavigationMode ? 'ON' : 'OFF'} at zoom level ${params.zoom}`);
 
         // Get initial region info using our new utility
         try {
@@ -1261,9 +1317,13 @@ const BirdMap = () => {
       setLastFetchParams(null);
       debug.info('URL parameters loaded:', params);
       
-      // Trigger initial fetch once parameters are loaded
-      debug.info('Triggering initial fetch after URL parameters load');
-      setShouldFetch(true);
+      // Trigger initial fetch once parameters are loaded (only if not in navigation mode)
+      if (!initialNavigationMode) {
+        debug.info('Triggering initial fetch after URL parameters load');
+        setShouldFetch(true);
+      } else {
+        debug.info('Skipping initial fetch due to navigation mode');
+      }
     } catch (error) {
       debug.error('Error loading URL parameters:', error);
     }
@@ -1342,7 +1402,10 @@ const BirdMap = () => {
             zoom={urlParams.zoom}
             minZoom={MAP_ZOOM_CONSTRAINTS.MIN_ZOOM}
             maxZoom={MAP_ZOOM_CONSTRAINTS.MAX_ZOOM}
-            style={LAYOUT_STYLES.map}
+            style={{
+              ...LAYOUT_STYLES.map,
+              cursor: isNavigationMode ? (isDragging ? 'grabbing' : 'grab') : 'auto'
+            }}
             zoomControl={false}
             ref={(ref) => {
               debug.debug('MapContainer ref callback:', { hasRef: !!ref, urlParams });
@@ -1355,7 +1418,8 @@ const BirdMap = () => {
             />
             <MapEvents 
               onMoveEnd={handleMoveEnd} 
-              onViewportChange={handleViewportChange} 
+              onViewportChange={handleViewportChange}
+              onZoomChange={handleZoomChange}
               onDragStart={() => {
                 setIsDragging(true);
                 // Cancel any pending fetch timer when starting a new drag
@@ -1371,7 +1435,7 @@ const BirdMap = () => {
               setIsMapAnimating={setIsMapAnimating} 
               onAnimationComplete={handleMoveEnd} 
             />
-            {birdSightings.map((location) => (
+            {!isNavigationMode && birdSightings.map((location) => (
               <BirdMarker
                 key={`${location.lat}-${location.lng}`}
                 location={location}
@@ -1389,6 +1453,7 @@ const BirdMap = () => {
               />
             ))}
             {loading && <LoadingOverlay />}
+            {isNavigationMode && <NavigationModeOverlay />}
           </MapContainer>
         )}
       </div>

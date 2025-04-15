@@ -91,5 +91,30 @@ export const LoadingOverlay = () => (
   </div>
 );
 
+/**
+ * Displays a notification when in navigation mode (zoomed out)
+ * @component
+ * @returns {React.ReactElement}
+ */
+export const NavigationModeOverlay = () => (
+  <div style={{
+    position: 'absolute',
+    top: '10px',
+    right: '60px',
+    padding: '8px 12px',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    color: 'white',
+    borderRadius: '4px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+    zIndex: 1000,
+    pointerEvents: 'none',
+    fontWeight: 'normal',
+    fontSize: '14px'
+  }}>
+    Navigation mode - zoom in to load birds
+  </div>
+);
+
 LoadingOverlay.displayName = 'LoadingOverlay';
 FadeNotification.displayName = 'FadeNotification';
+NavigationModeOverlay.displayName = 'NavigationModeOverlay';
