@@ -42,19 +42,12 @@ const activeClientTiles = new Map(); // clientId -> { tiles: Set, lastActive: ti
 // Debug logging at startup
 debug.info('CacheManager initialized');
 
-// Maximum number of days to look back - limiting this improves performance dramatically
-const MAX_BACK_DAYS = 14;
-
-// Timeout for stale client data (5 minutes)
-const STALE_CLIENT_TIMEOUT = 5 * 60 * 1000;
 
 // Cache statistics counters
 let cacheHits = 0;
 let cacheMisses = 0;
 let apiRequestCount = 0;
 
-// Valid back values from client configuration with a maximum of 14 days
-const VALID_BACK_VALUES = [1, 3, 7, MAX_BACK_DAYS]; // Maximum back days is 14
 
 /**
  * Converts a coordinate to a tile ID based on configured tile size
@@ -96,10 +89,9 @@ function getTileId(lat, lng, back) {
 /**
  * Calculates the center coordinates for a tile
  * @param {string} tileId - The tile ID in format "tileY:tileX"
- * @param {string} [back] - Optional back value for return value
- * @returns {Object} Center coordinates {lat, lng, back}
+ * @returns {Object} Center coordinates {lat, lng}
  */
-function getTileCenter(tileId, back) {
+function getTileCenter(tileId) {
   const [tileY, tileX] = tileId.split(':');
   
   const y = parseInt(tileY, 10);
@@ -130,8 +122,7 @@ function getTileCenter(tileId, back) {
   
   return { 
     lat: centerLat, 
-    lng: centerLng,
-    back // Will be undefined if not provided
+    lng: centerLng
   };
 }
 
@@ -204,21 +195,11 @@ function getTilesForViewport(viewport) {
 
 
 /**
- * Stores data in tile cache with expiration and calculates cutoff indices for different back values
+ * Stores data in tile cache with expiration
  * @param {string} tileId - Tile ID (tileY:tileX)
  * @param {Array} data - Bird sighting data to cache 
- * @param {number} backValue - Number of days back this data represents
  */
-function setTileCache(tileId, data, backValue) {
-  // Ensure backValue is a number and limit to maximum days
-  let backNum = parseInt(backValue, 10);
-  
-  // Enforce maximum back value
-  if (backNum > MAX_BACK_DAYS) {
-    debug.warn(`Requested back=${backNum} exceeds maximum ${MAX_BACK_DAYS}, limiting to ${MAX_BACK_DAYS}`);
-    backNum = MAX_BACK_DAYS;
-  }
-  
+function setTileCache(tileId, data) {
   // First ensure data is sorted by date (most recent first)
   // This is critical for our cutoff index calculation
   const sortedData = [...data].sort((a, b) => 
@@ -229,115 +210,37 @@ function setTileCache(tileId, data, backValue) {
   let cacheEntry = tileCache.get(tileId);
   const now = Date.now();
   
-  // Create a new entry if:
-  // 1. No entry exists
-  // 2. Existing entry is expired
-  // 3. Existing entry has a smaller back value than the new one
-  if (!cacheEntry || now > cacheEntry.expires || backNum > cacheEntry.maxBack) {
-    // Calculate cutoff dates for all valid back values
-    const cutoffDates = {};
-    const now = new Date();
-    
-    VALID_BACK_VALUES.forEach(days => {
-      if (days <= backNum) {
-        const cutoff = new Date(now);
-        cutoff.setDate(cutoff.getDate() - days);
-        cutoffDates[days] = cutoff;
-      }
-    });
-    
-    // Create new entry (or completely replace old one)
+  // Create a new entry if none exists or if existing is expired
+  if (!cacheEntry || now > cacheEntry.expires) {
+    // Create new entry
     cacheEntry = {
       data: sortedData,
-      maxBack: backNum,
       timestamp: now,
       expires: now + CACHE_TTL,
-      cutoffDates: cutoffDates,
-      backValueIndices: {}, // Will be calculated below
       isDeduplicated: false,
       viewportDeduplicationSaved: 0
     };
   } else {
-    // If we already have data with a larger back value, log and return
-    if (cacheEntry.maxBack >= backNum) {
-      debug.cache(`Existing cache entry for ${tileId} already has back=${cacheEntry.maxBack} which covers requested back=${backNum}`);
-      return;
-    }
-    
-    // Otherwise update cache entry with new data
+    // Update existing entry with new data
     cacheEntry.data = sortedData;
-    cacheEntry.maxBack = backNum;
     cacheEntry.timestamp = now;
     cacheEntry.expires = now + CACHE_TTL;
-    
-    // Update cutoff dates for the new back value
-    VALID_BACK_VALUES.forEach(days => {
-      if (days <= backNum && !cacheEntry.cutoffDates[days]) {
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - days);
-        cacheEntry.cutoffDates[days] = cutoff;
-      }
-    });
-    
     cacheEntry.isDeduplicated = false;
     cacheEntry.viewportDeduplicationSaved = 0;
   }
   
-  // Calculate cutoff indices for all valid back values
-  // This is the key optimization - we pre-compute where in the array each back value's data ends
-  const backValueIndices = {};
-  
-  // Go through each valid back value
-  VALID_BACK_VALUES.forEach(days => {
-    if (days <= backNum) {
-      const cutoffDate = cacheEntry.cutoffDates[days];
-      
-      // Find the index where data for this back value ends
-      // Since data is sorted most recent first, we can scan until we hit the cutoff
-      let index = -1;
-      for (let i = 0; i < sortedData.length; i++) {
-        const obsDt = new Date(sortedData[i].obsDt);
-        if (obsDt < cutoffDate) {
-          // We found the cutoff point
-          index = i - 1;
-          break;
-        }
-      }
-      
-      // If we never hit the cutoff, all data is within this back period
-      if (index === -1) {
-        index = sortedData.length - 1;
-      }
-      
-      backValueIndices[days] = index;
-      debug.cache(`Back=${days} days has ${index + 1} records (cutoff index: ${index})`);
-    }
-  });
-  
-  cacheEntry.backValueIndices = backValueIndices;
-  
   // Store in the cache
   tileCache.set(tileId, cacheEntry);
   
-  debug.cache(`Tile cache updated: ${tileId}, max back=${backNum}, entries: ${sortedData.length}, expires in ${CACHE_TTL/1000/60} minutes`);
+  debug.cache(`Tile cache updated: ${tileId}, entries: ${sortedData.length}, expires in ${CACHE_TTL/1000/60} minutes`);
 }
 
 /**
  * Retrieves data from tile cache if available and not expired
- * Filters the data based on the requested back value
  * @param {string} tileId - Tile ID (tileY:tileX)
- * @param {number} backValue - Number of days to look back
- * @returns {Array|null} Cached data filtered for the requested back value, or null if not found/expired
+ * @returns {Array|null} Cached data or null if not found/expired
  */
-function getTileCache(tileId, backValue) {
-  // Ensure backValue is a number and limit to maximum days
-  let requestedBackNum = parseInt(backValue, 10);
-  
-  // Enforce maximum back value
-  if (requestedBackNum > MAX_BACK_DAYS) {
-    debug.debug(`Requested back=${requestedBackNum} exceeds maximum ${MAX_BACK_DAYS}, using ${MAX_BACK_DAYS}`);
-    requestedBackNum = MAX_BACK_DAYS;
-  }
+function getTileCache(tileId) {
   
   // Get the cache entry
   const cacheEntry = tileCache.get(tileId);
@@ -356,64 +259,13 @@ function getTileCache(tileId, backValue) {
     return null;
   }
   
-  // Check if this entry's maxBack covers the requested back value
-  if (cacheEntry.maxBack < requestedBackNum) {
-    debug.cache(`Cache entry for ${tileId} has maxBack=${cacheEntry.maxBack}, which is less than requested back=${requestedBackNum}`);
-    cacheMisses++;
-    return null;
-  }
-  
-  // We have a cache entry with sufficient back data - filter it
-  // Find the pre-calculated index for this back value
-  const backIndex = cacheEntry.backValueIndices[requestedBackNum];
-  
-  // If we don't have a pre-calculated index for this specific back value
-  // (which shouldn't happen if using standard back values), find the closest smaller one
-  if (backIndex === undefined) {
-    debug.cache(`No pre-calculated index for back=${requestedBackNum}, finding closest smaller back value`);
-    
-    // Find closest smaller back value that we have an index for
-    const availableBackValues = Object.keys(cacheEntry.backValueIndices)
-      .map(Number)
-      .filter(b => b < requestedBackNum)
-      .sort((a, b) => b - a); // Sort descending to get closest smaller
-    
-    if (availableBackValues.length > 0) {
-      const closestBack = availableBackValues[0];
-      debug.cache(`Using closest available back=${closestBack} instead of requested back=${requestedBackNum}`);
-      
-      // Use the index for the closest smaller back value
-      const closestIndex = cacheEntry.backValueIndices[closestBack];
-      const filteredData = cacheEntry.data.slice(0, closestIndex + 1);
-      debug.cache(`Returning ${filteredData.length} records using closest back value index`);
-      return filteredData;
-    }
-    
-    // If we have no smaller back values (shouldn't happen with standard values),
-    // we need to filter manually
-    debug.cache(`No smaller back values available, filtering manually`);
-    
-    // Calculate cutoff date
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - requestedBackNum);
-    
-    // Filter the data
-    const filteredData = cacheEntry.data.filter(bird => {
-      const obsDt = new Date(bird.obsDt);
-      return obsDt >= cutoffDate;
-    });
-    
-    debug.cache(`Manually filtered to ${filteredData.length} records for back=${requestedBackNum}`);
-    return filteredData;
-  }
-  
-  // Simple and fast - just slice the array to the pre-calculated index
-  const filteredData = cacheEntry.data.slice(0, backIndex + 1);
+  // Just return all the data - no filtering by back value needed
+  const filteredData = cacheEntry.data;
   
   // Track cache hit
   cacheHits++;
   
-  debug.cache(`Tile cache hit: ${tileId}, returning ${filteredData.length} records for back=${requestedBackNum} from maxBack=${cacheEntry.maxBack} tile (from cache index ${backIndex})`);
+  debug.cache(`Tile cache hit: ${tileId}, returning ${filteredData.length} records`);
   return filteredData;
 }
 
@@ -423,18 +275,14 @@ function getTileCache(tileId, backValue) {
  * but DOES NOT mark them as seen by the client. That will happen separately
  * after data is collected and ready to be sent to the client.
  * @param {string[]} tileIds - List of tile IDs (tileY:tileX format)
- * @param {Object} viewport - Viewport with back value and optional clientId
- * @returns {Array<{tileId: string, backValue: number}>} List of missing tiles with their required back values
+ * @param {Object} viewport - Viewport with optional clientId
+ * @returns {Array<{tileId: string}>} List of missing tiles
  */
 function getMissingTiles(tileIds, viewport) {
   // Use client ID if provided, otherwise create a temporary one
   const clientId = viewport.clientId || `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   
-  // ALWAYS use MAX_BACK_DAYS for fetching tiles
-  // This ensures we have the maximum data available in the cache
-  const backNum = MAX_BACK_DAYS;
-  
-  debug.info(`Using maximum back value (${MAX_BACK_DAYS}) for tile fetching regardless of client request (${viewport.back})`);
+  debug.info(`Finding missing tiles for client ${clientId}`);
   
   // Check which tiles are missing from the cache
   // IMPORTANT: This only checks cache, it DOES NOT mark tiles as seen by client
@@ -451,13 +299,12 @@ function getMissingTiles(tileIds, viewport) {
     }
   }
   
-  // Convert to the expected format - ALWAYS using MAX_BACK_DAYS
+  // Convert to the expected format
   const missingTiles = missingTileIds.map(tileId => ({
-    tileId,
-    backValue: backNum
+    tileId
   }));
   
-  debug.cache(`Found ${missingTiles.length} tiles to fetch out of ${tileIds.length} total with back=${backNum} for client ${clientId}`);
+  debug.cache(`Found ${missingTiles.length} tiles to fetch out of ${tileIds.length} total for client ${clientId}`);
   return missingTiles;
 }
 
@@ -643,41 +490,6 @@ function mergeTileData(tileDataArray) {
   debug.perf(`Merged ${mergedData.length} records from ${validArrays.length} tiles (${duplicatesRemoved} duplicates removed) in ${Date.now() - startTime}ms`);
   
   return mergedData;
-}
-
-/**
- * Clears all expired entries from the cache
- * @returns {number} Number of entries removed
- */
-function clearExpired() {
-  let removed = 0;
-  const now = Date.now();
-  
-  // Clear expired tile cache entries
-  for (const [key, entry] of tileCache.entries()) {
-    if (now > entry.expires) {
-      tileCache.delete(key);
-      removed++;
-    }
-  }
-  
-  // Log details about remaining entries
-  if (removed > 0 || Math.random() < 0.1) { // Only log details occasionally or when we removed entries
-    // Count statistics for the remaining entries
-    const backCounts = {};
-    
-    for (const entry of tileCache.values()) {
-      const back = entry.maxBack;
-      backCounts[back] = (backCounts[back] || 0) + 1;
-    }
-    
-    debug.info(`Cleared ${removed} expired cache entries (${tileCache.size} tile entries remaining)`);
-    debug.info(`Remaining entries by max back value: ${JSON.stringify(backCounts)}`);
-  } else {
-    debug.cache(`No expired entries found during cleanup check`);
-  }
-  
-  return removed;
 }
 
 /**
@@ -1109,99 +921,51 @@ function isTileActive(tileId) {
 }
 
 /**
- * Cleans up stale client entries
- * @returns {number} - Number of clients removed
- */
-function cleanupStaleClients() {
-  const now = Date.now();
-  let removed = 0;
-  
-  for (const [clientId, clientData] of activeClientTiles.entries()) {
-    if (now - clientData.lastActive > STALE_CLIENT_TIMEOUT) {
-      activeClientTiles.delete(clientId);
-      removed++;
-    }
-  }
-  
-  if (removed > 0) {
-    debug.info(`Cleaned up ${removed} stale client entries`);
-  }
-  
-  return removed;
-}
-
-/**
- * Clears expired tiles from cache and removes client tracking for those tiles
- * The process is:
- * 1. Identify all expired tiles
- * 2. Remove client tracking for all expired tiles
- * 3. Remove all expired tiles from cache
+ * Clears expired tiles from cache and updates client tracking
+ * @returns {number} Number of tiles removed
  */
 function clearExpired() {
-  let removed = 0;
   const now = Date.now();
-  
-  // First clean up stale clients
-  cleanupStaleClients();
-  
-  // Identify all expired tiles
   const expiredTileIds = [];
-  for (const [key, entry] of tileCache.entries()) {
+  let removedTilesCount = 0;
+  
+  // STEP 1: Identify and remove expired tiles in a single pass
+  for (const [tileId, entry] of tileCache.entries()) {
     if (now > entry.expires) {
-      expiredTileIds.push(key);
+      tileCache.delete(tileId);
+      expiredTileIds.push(tileId);
+      removedTilesCount++;
     }
   }
   
-  if (expiredTileIds.length === 0) {
+  // If no tiles were expired, just log and return
+  if (removedTilesCount === 0) {
     debug.cache(`No expired entries found during cleanup check`);
     return 0;
   }
   
-  // First, remove all client tracking for expired tiles
-  // This ensures clients will receive updated data if the tile is refreshed
-  let totalClientRemovals = 0;
+  // STEP 2: Clean up client references to expired tiles
+  let removedTileRefsCount = 0;
+  
   for (const [clientId, clientData] of activeClientTiles.entries()) {
     const clientTiles = clientData.tiles;
-    let clientRemovedCount = 0;
+    let clientTileRemovalCount = 0;
     
-    expiredTileIds.forEach(tileId => {
+    for (const tileId of expiredTileIds) {
       if (clientTiles.has(tileId)) {
         clientTiles.delete(tileId);
-        clientRemovedCount++;
+        clientTileRemovalCount++;
       }
-    });
+    }
     
-    if (clientRemovedCount > 0) {
-      totalClientRemovals += clientRemovedCount;
-      debug.cache(`Removed ${clientRemovedCount} expired tile references from client ${clientId}`);
+    if (clientTileRemovalCount > 0) {
+      removedTileRefsCount += clientTileRemovalCount;
+      debug.cache(`Removed ${clientTileRemovalCount} expired tile references from client ${clientId}`);
     }
   }
   
-  // Now remove all expired tiles from cache
-  for (const tileId of expiredTileIds) {
-    tileCache.delete(tileId);
-    removed++;
-  }
-  
-  debug.info(`Cleared ${removed} expired cache entries (${tileCache.size} remaining). Removed ${totalClientRemovals} client tile references.`);
-  
-  // Log details about remaining entries
-  if (removed > 0 || Math.random() < 0.1) { // Only log details occasionally or when we removed entries
-    // Count statistics for the remaining entries
-    const backCounts = {};
-    
-    for (const entry of tileCache.values()) {
-      const back = entry.maxBack;
-      backCounts[back] = (backCounts[back] || 0) + 1;
-    }
-    
-    debug.info(`Cleared ${removed} expired cache entries (${tileCache.size} tile entries remaining)`);
-    debug.info(`Remaining entries by max back value: ${JSON.stringify(backCounts)}`);
-  } else {
-    debug.cache(`No expired entries found during cleanup check`);
-  }
-  
-  return removed;
+  debug.info(`Cleared ${removedTilesCount} expired tiles (${tileCache.size} remaining). Removed ${removedTileRefsCount} client tile references.`);
+  return removedTilesCount;
 }
 
 // Start periodic cleanup
@@ -1242,16 +1006,11 @@ module.exports = {
   tileCache,
   activeClientTiles,
   
-  // Back value configuration
-  VALID_BACK_VALUES,
-  MAX_BACK_DAYS,
-  
   // Cache metrics
   incrementApiRequestCount,
   
   // Cache management
   clearExpired,
-  cleanupStaleClients,
   clearAll,
   getStats
 };

@@ -36,7 +36,6 @@ const {
   getClientMissingTiles,
   tileCache,
   activeClientTiles,
-  MAX_BACK_DAYS,
   incrementApiRequestCount,
   getTileBoundaries,
   clipDataToTileBoundaries
@@ -47,6 +46,7 @@ constants.cacheManager = cacheManager;
 
 // API request settings from constants
 const MAX_PARALLEL_REQUESTS = constants.API.MAX_PARALLEL_REQUESTS;
+const MAX_BACK_DAYS = constants.API.MAX_BACK_DAYS;
 const MAX_INITIAL_BATCHES = constants.API.MAX_INITIAL_BATCHES;
 
 // Rate limiting protection
@@ -139,8 +139,8 @@ async function getBirdDataFromTiles(viewport) {
       const batch = initialBatches[i];
       debug.info(`Fetching batch ${i+1}/${initialBatches.length} (${batch.length} tiles)`);
       
-      // Process batch in parallel - pass both tile ID and back value to fetch function
-      await Promise.all(batch.map(tile => fetchTileData(tile.tileId, tile.backValue)));
+      // Process batch in parallel
+      await Promise.all(batch.map(tile => fetchTileData(tile.tileId)));
     }
     
     // Track API requests
@@ -172,7 +172,7 @@ async function getBirdDataFromTiles(viewport) {
   // IMPORTANT: Don't mark tiles as seen yet - only do that after successfully sending to client
   const tileDataPromises = clientTilesToReturn.map(tileId => {
     // Get the tile data from cache
-    return getTileCache(tileId, backValue);
+    return getTileCache(tileId);
   });
   
   const tileData = await Promise.all(tileDataPromises);
@@ -254,16 +254,14 @@ async function getBirdDataFromTiles(viewport) {
 /**
  * Fetches data for a single tile and stores it in cache
  * @param {string} tileId - Tile ID (format: tileY:tileX)
- * @param {number} backValue - Number of days to look back
  * @returns {Promise<Array>} Bird sighting data for the tile
  */
-async function fetchTileData(tileId, backValue) {
+async function fetchTileData(tileId) {
   const tileStartTime = Date.now();
   
   try {
-    // Get the tile center coordinates and add back value
+    // Get the tile center coordinates
     const tileCenter = getTileCenter(tileId);
-    tileCenter.back = backValue;
     
     // Using a fixed radius per tile based on the tile size
     // We add a buffer to ensure we get all data at the tile boundaries
@@ -277,15 +275,15 @@ async function fetchTileData(tileId, backValue) {
     // Add buffer to ensure we don't miss data at tile boundaries
     const radius = diagonalKm * RADIUS_BUFFER;
     
-    // Prepare parameters for eBird API
+    // Prepare parameters for eBird API - always use MAX_BACK_DAYS
     const params = {
       lat: tileCenter.lat,
       lng: tileCenter.lng,
       dist: radius,
-      back: backValue
+      back: MAX_BACK_DAYS
     };
     
-    debug.info(`Fetching tile ${tileId} with center (${tileCenter.lat.toFixed(4)}, ${tileCenter.lng.toFixed(4)}), radius ${radius.toFixed(2)}km, days back ${backValue}`);
+    debug.info(`Fetching tile ${tileId} with center (${tileCenter.lat.toFixed(4)}, ${tileCenter.lng.toFixed(4)}), radius ${radius.toFixed(2)}km, days back ${MAX_BACK_DAYS}`);
     
     // Fetch both regular and notable birds
     const [recentBirds, notableBirds] = await Promise.all([
@@ -338,16 +336,16 @@ async function fetchTileData(tileId, backValue) {
       combinedData = clippedData;
     }
     
-    // Cache the clipped tile data - passing back value explicitly
-    setTileCache(tileId, combinedData, backValue);
+    // Cache the clipped tile data
+    setTileCache(tileId, combinedData);
     
-    debug.info(`Tile ${tileId} complete: ${combinedData.length} birds with back=${backValue} in ${Date.now() - tileStartTime}ms`);
+    debug.info(`Tile ${tileId} complete: ${combinedData.length} birds in ${Date.now() - tileStartTime}ms`);
     return combinedData;
   } catch (error) {
-    debug.error(`Error fetching tile ${tileId} with back=${backValue}:`, error);
+    debug.error(`Error fetching tile ${tileId}:`, error);
     
     // Store empty array in cache to avoid repeated failed requests
-    setTileCache(tileId, [], backValue);
+    setTileCache(tileId, []);
     
     return [];
   }

@@ -23,7 +23,6 @@ const serverConstants = {
   CACHE: {
     // How long cached data remains valid (in minutes)
     TTL_MINUTES: parseInt(process.env.CACHE_TTL_MINUTES, 10) || 240,
-    
     // How often to check and clear expired cache entries (in minutes)
     CLEANUP_INTERVAL_MINUTES: parseInt(process.env.CACHE_CLEANUP_INTERVAL_MINUTES, 10) || 15
   },
@@ -47,7 +46,10 @@ const serverConstants = {
     
     // Maximum initial batches to fetch immediately (remaining batches fetch in background)
     // Set to a very high number to force fetching all tiles synchronously (no background loading)
-    MAX_INITIAL_BATCHES: parseInt(process.env.MAX_INITIAL_BATCHES, 10) || 1000
+    MAX_INITIAL_BATCHES: parseInt(process.env.MAX_INITIAL_BATCHES, 10) || 1000,
+    
+    // Maximum number of days to look back for bird data
+    MAX_BACK_DAYS: parseInt(process.env.MAX_BACK_DAYS, 10) || 14
   },
 
   // Geographic constraints
