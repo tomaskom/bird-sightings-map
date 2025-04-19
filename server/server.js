@@ -476,10 +476,10 @@ app.get('/api/admin/cache-stats', adminAuth, (req, res) => {
 });
 
 /**
- * TEMPORARY TEST ENDPOINT - Force expiration of tiles for testing
+ * API endpoint for forcing expiration of all tiles in cache
  * @route GET /api/admin/force-expire-tiles
  */
-app.get('/api/admin/force-expire-tiles', (req, res) => {
+app.get('/api/admin/force-expire-tiles', adminAuth, (req, res) => {
   const { clientId } = req.query;
   debug.info('Force expire tiles requested', { clientId });
   
@@ -561,15 +561,6 @@ app.get('/api/admin/client-tracking', adminAuth, (req, res) => {
   }
 });
 
-/**
- * API endpoint for manually clearing expired cache entries
- * @route GET /api/admin/clear-expired-cache
- */
-app.get('/api/admin/clear-expired-cache', adminAuth, (req, res) => {
-  const removed = clearExpired();
-  debug.info(`Manually cleared ${removed} expired cache entries`);
-  res.json({ success: true, removed });
-});
 
 /**
  * HTML dashboard for cache statistics
@@ -727,7 +718,7 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
       
       <div class="actions">
         <button id="refresh-btn">Refresh Stats</button>
-        <button id="clear-btn" class="warning">Clear Expired Entries</button>
+        <button id="clear-btn" class="warning">Force Expire Tiles</button>
       </div>
       
       <div class="dashboard">
@@ -1100,22 +1091,22 @@ app.get('/api/admin/dashboard', adminAuth, (req, res) => {
         });
         
         document.getElementById('clear-btn').addEventListener('click', function() {
-          if (confirm('Are you sure you want to clear expired cache entries?')) {
+          if (confirm('Are you sure you want to force expire all tiles?')) {
             this.disabled = true;
-            this.textContent = 'Clearing...';
+            this.textContent = 'Expiring...';
             
-            fetch('/api/admin/clear-expired-cache?key=${req.query.key || ''}', {
+            fetch('/api/admin/force-expire-tiles?key=${req.query.key || ''}', {
               headers: { 'X-API-Key': '${req.headers['x-api-key'] || ''}' }
             })
             .then(response => response.json())
             .then(data => {
-              alert('Cleared ' + data.removed + ' expired entries');
+              alert('Expired all tiles');
               window.location.reload();
             })
             .catch(err => {
               alert('Error: ' + err.message);
               this.disabled = false;
-              this.textContent = 'Clear Expired Entries';
+              this.textContent = 'Force Expire Tiles';
             });
           }
         });
