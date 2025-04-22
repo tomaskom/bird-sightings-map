@@ -58,7 +58,11 @@ const serverConstants = {
     MAX_LATITUDE: 85,
     
     // Earth's radius in kilometers for distance calculations
-    EARTH_RADIUS_KM: 6371
+    EARTH_RADIUS_KM: 6371,
+    
+    // Maximum allowed viewport size in degrees (lat/lng)
+    // This prevents excessive API usage by limiting viewport size
+    MAX_VIEWPORT_SIZE_DEG: parseFloat(process.env.MAX_VIEWPORT_SIZE_DEG) || 5
   }
 };
 

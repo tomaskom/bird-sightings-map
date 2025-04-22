@@ -132,6 +132,21 @@ function isValidViewport(viewport) {
     return false;
   }
   
+  // Check if viewport size exceeds maximum allowed size
+  const latitudeDelta = maxLat - minLat;
+  const longitudeDelta = maxLng - minLng;
+  const maxViewportSizeDeg = constants.GEO.MAX_VIEWPORT_SIZE_DEG;
+  
+  if (latitudeDelta > maxViewportSizeDeg) {
+    debug.warn(`Viewport latitude range (${latitudeDelta.toFixed(2)}°) exceeds maximum allowed (${maxViewportSizeDeg}°)`);
+    return false;
+  }
+  
+  if (longitudeDelta > maxViewportSizeDeg) {
+    debug.warn(`Viewport longitude range (${longitudeDelta.toFixed(2)}°) exceeds maximum allowed (${maxViewportSizeDeg}°)`);
+    return false;
+  }
+  
   // clientId is optional, but if provided it should be a non-empty string
   if (viewport.clientId !== undefined && 
       (typeof viewport.clientId !== 'string' || viewport.clientId.trim() === '')) {
